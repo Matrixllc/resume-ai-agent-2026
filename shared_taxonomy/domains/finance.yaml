@@ -1,0 +1,20 @@
+domain_name: Finance
+aliases:
+  - 金融
+  - 金融领域
+  - 金融行业
+  - 金融风控
+  - 银行
+  - banking
+  - fintech
+  - finance
+concepts:
+  - 风控系统
+search_hints:
+  - 风控
+  - 支付
+  - 交易
+local_concepts:
+  - name: 交易系统
+    type: concept
+    aliases: [交易, trade system]

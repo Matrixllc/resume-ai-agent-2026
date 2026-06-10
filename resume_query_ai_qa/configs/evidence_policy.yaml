@@ -1,0 +1,59 @@
+version: "v1"
+evidence_strength_order:
+  - project_evidence
+  - project_tags
+  - domain_tags
+  - candidate_tags
+  - work_experiences
+  - education_experiences
+
+intents:
+  candidate_count:
+    requires_evidence: false
+    requires_tool_count: true
+
+  candidate_list:
+    requires_evidence: false
+
+  candidate_filter:
+    requires_evidence: false
+    min_evidence_per_candidate: 0
+    scenarios:
+      hard_filter:
+        requires_evidence: false
+        min_evidence_per_candidate: 0
+      open_recall:
+        requires_evidence: false
+        min_evidence_per_candidate: 0
+      evidence_lookup:
+        requires_evidence: true
+        min_evidence_per_candidate: 1
+
+  candidate_profile_intro:
+    requires_evidence: true
+    min_evidence_per_candidate: 1
+    hide_contact_by_default: true
+
+  candidate_compare_pair:
+    requires_evidence: true
+    min_evidence_per_candidate: 2
+
+  candidate_ranking:
+    requires_evidence: true
+    min_evidence_per_candidate: 1
+    requires_scoring_table: true
+
+  jd_scoring:
+    requires_evidence: true
+    min_evidence_per_candidate: 1
+    requires_scoring_table: true
+
+  evidence_question:
+    requires_evidence: true
+    min_evidence_per_candidate: 1
+
+  follow_up:
+    requires_evidence: false
+
+  compound:
+    requires_evidence: false

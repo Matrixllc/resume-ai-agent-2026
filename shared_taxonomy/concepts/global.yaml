@@ -1,0 +1,76 @@
+concepts:
+  - name: 计算机
+    type: major
+    aliases: [计算机, 计算机科学, 计算机技术, 软件工程, computer science, software engineering]
+  - name: Python
+    type: skill
+    aliases: [python]
+  - name: Java
+    type: skill
+    aliases: [java]
+  - name: JavaScript
+    type: skill
+    aliases: [javascript, js]
+  - name: Node.js
+    type: skill
+    aliases: [node.js, nodejs]
+  - name: SQL
+    type: skill
+    aliases: [sql]
+  - name: MySQL
+    type: skill
+    aliases: [mysql]
+  - name: Redis
+    type: skill
+    aliases: [redis]
+  - name: Kafka
+    type: skill
+    aliases: [kafka]
+  - name: MongoDB
+    type: skill
+    aliases: [mongodb, mongo]
+  - name: Spring Boot
+    type: skill
+    aliases: [springboot, spring boot]
+  - name: 推荐系统
+    type: concept
+    aliases: [推荐, recommendation]
+  - name: 搜索系统
+    type: concept
+    aliases: [搜索, search]
+  - name: 发票解析
+    type: concept
+    aliases: [发票, pdf解析, 解析系统]
+  - name: 风控系统
+    type: concept
+    aliases: [风控, risk control]
+  - name: 用户运营
+    type: concept
+    aliases: [用户运营, user operations]
+  - name: 增长运营
+    type: concept
+    aliases: [增长运营, growth operations]
+  - name: 活动运营
+    type: concept
+    aliases: [活动运营, campaign operations]
+  - name: 商家运营
+    type: concept
+    aliases: [商家运营, merchant operations]
+  - name: 内容运营
+    type: concept
+    aliases: [内容运营, content operations]
+  - name: 会员运营
+    type: concept
+    aliases: [会员运营, membership operations]
+  - name: 光伏项目
+    type: concept
+    aliases: [光伏, 光伏项目, photovoltaic]
+  - name: 风电项目
+    type: concept
+    aliases: [风电, 风电项目, wind power]
+  - name: 储能系统
+    type: concept
+    aliases: [储能, 储能系统, energy storage]
+  - name: 电力交易
+    type: concept
+    aliases: [电力交易, power trading]

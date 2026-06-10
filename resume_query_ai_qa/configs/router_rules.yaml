@@ -1,0 +1,242 @@
+version: "v1"
+
+preprocess:
+  filler_terms:
+    - "帮我"
+    - "请帮我"
+    - "麻烦"
+    - "查一下"
+    - "看一下"
+  normalize_punctuation: true
+
+out_of_scope:
+  general_knowledge_patterns:
+    - "是什么"
+    - "什么是"
+    - "解释一下"
+    - "介绍一下这个概念"
+    - "科普"
+    - "what is"
+    - "how does"
+  resume_search_signals:
+    - "谁"
+    - "哪些"
+    - "候选人"
+    - "简历"
+    - "会"
+    - "有"
+    - "找"
+    - "查询"
+    - "筛选"
+    - "匹配"
+    - "招聘"
+    - "岗位"
+  resume_domain_signals:
+    - "候选人"
+    - "简历"
+    - "项目"
+    - "项目经验"
+    - "项目经历"
+    - "工作经历"
+    - "经历"
+    - "经验"
+    - "背景"
+    - "技能"
+    - "领域"
+    - "岗位"
+    - "JD"
+    - "jd"
+    - "面试"
+    - "招聘"
+
+signals:
+  discovery_terms: ["谁有", "哪些人有", "谁具备", "哪些候选人有", "who has"]
+  project_terms: ["列举", "列出", "项目", "项目经历", "项目经验", "project"]
+  experience_terms: ["经验", "经历", "背景", "experience"]
+  profile_terms: ["介绍", "个人信息", "个人经历", "工作经历", "经历", "背景", "信息", "资料", "展示", "显示", "查看", "看下", "看一下", "introduce", "profile", "personal info", "background", "experience", "work history", "show", "display", "view", "tell me about"]
+  fit_terms: ["分析", "判断", "评估", "适不适合", "是否适合", "适合", "能不能做", "能否胜任", "可不可以做", "fit", "suitable"]
+  fit_target_terms: ["做", "胜任", "担任"]
+  fit_relation_terms: ["适合", "能不能", "能否", "可不可以"]
+  yes_no_evidence_terms: ["有没有", "是否有", "有无"]
+  open_recall_terms: ["可能", "相关", "类似", "找找", "看看", "接近", "这类"]
+  context_pool_priority_terms: ["优先面试", "优先级", "值得推进", "进入下一轮", "更值得", "适合", "更适合", "最适合", "推荐"]
+  question_subject_terms: ["谁", "哪个", "哪位"]
+  single_candidate_profile_terms: ["是什么", "有哪些", "有什么", "项目经验", "项目经历", "项目"]
+  single_candidate_evidence_terms: ["金融", "岗位", "适不适合", "是否适合", "适合", "能不能做", "能否胜任", "可不可以做"]
+
+pair_compare:
+  explicit_terms: ["对比", "compare", "comparison", "versus", " vs "]
+  generic_compare_terms: ["比较"]
+  connectors: ["和", " and ", " vs ", " versus "]
+  compare_terms: ["谁更好", "谁更强", "谁更适合", "哪个更好", "哪个更强", "更强", "项目更强", "分别有哪些优势", "各自优势", "优势", "比较好", "better", "stronger", "more suitable"]
+  compare_word_exclude_terms: ["比较好", "比较强", "比较适合"]
+  ranking_exclude_terms: ["排序", "排名", "全部", "所有", "候选人", "rank", "ranking", "all candidates"]
+
+resume_domain:
+  resume_terms: ["候选人", "简历", "项目", "项目经验", "项目经历", "工作经历", "经历", "经验", "背景", "技能", "领域", "岗位", "jd", "JD", "面试", "招聘", "求职", "人才", "金融经验", "风控", "推荐系统", "搜索系统", "运营", "能源", "计算机领域", "金融领域", "谁会", "谁有", "哪些人", "都有谁", "名单", "排序", "排名", "优先级", "优先面试", "值得推进"]
+  taxonomy_search_required_terms: ["谁", "候选人", "简历", "哪些", "有", "会", "找", "查询", "筛选", "匹配"]
+  count_terms: ["多少", "几个", "总数", "一共"]
+  count_people_terms: ["人", "候选", "简历"]
+
+intent_rules:
+  candidate_count:
+    trigger_any: ["多少", "几个", "总数", "how many", "count", "number of", "total"]
+  candidate_list:
+    trigger_any: ["都有谁", "有哪些", "名单", "列出", "who", "which candidates", "list", "names"]
+  candidate_filter:
+    trigger_any: ["谁会", "谁有", "哪些人有", "谁具备", "找", "筛选", "匹配"]
+  candidate_profile_intro:
+    trigger_any: ["介绍", "个人信息", "个人经历", "工作经历", "经历", "背景", "信息", "资料", "展示", "显示", "查看", "看下", "看一下", "profile", "background", "experience"]
+  evidence_question:
+    trigger_any: ["体现在哪里", "体现在哪", "证据", "依据", "理由", "原因", "项目里", "哪里体现", "evidence", "prove", "basis", "reason"]
+  candidate_compare_pair:
+    trigger_any: ["比较", "对比", "compare", "comparison", "versus", " vs ", "谁更好", "谁比较好", "谁更强", "谁更适合", "更强", "项目更强", "better", "stronger", "more suitable"]
+  candidate_ranking:
+    trigger_any: ["排序", "排名", "适合", "谁适合", "哪些人适合", "哪些候选人适合", "谁最强", "最适合", "优先面试", "优先级", "值得推进", "推荐谁", "推荐候选人", "rank", "ranking", "best", "recommend", "sort"]
+  interview_question_generation:
+    trigger_any: ["面试问题", "面试题", "面试追问", "追问", "提问", "进行提问", "提几个问题", "问几个问题", "出一些技术问题", "生成问题", "设计问题", "简历问题", "提出问题", "准备问题", "问什么", "考察点", "interview question"]
+
+compound_rules:
+  count_terms: ["多少", "几个", "总数", "how many", "count", "number of", "total"]
+  list_terms: ["都有谁", "有哪些", "名单", "列出", "who", "which candidates", "list", "names"]
+  ranking_terms: ["排序", "排名", "适合", "谁更好", "谁比较好", "谁更强", "谁最强", "谁适合", "谁更适合", "最适合", "推荐谁", "推荐候选人", "rank", "ranking", "better", "stronger", "best", "recommend", "sort"]
+  evidence_terms: ["体现在哪里", "体现在哪", "证据", "依据", "理由", "原因", "项目里", "哪里体现", "evidence", "prove", "basis", "reason"]
+
+context_ref_rules:
+  ranking_top_k:
+    terms: ["前三名", "前 3 名", "top3", "Top3", "TOP3"]
+    required_keys: ["last_ranking_candidate_ids"]
+    candidate_slice: [0, 3]
+    reason: "问题指向上一轮排序结果的前三名。"
+  ranking_top:
+    terms: ["第一名", "排第一", "第一位", "top1", "Top1", "TOP1"]
+    required_keys: ["last_ranking_candidate_ids"]
+    candidate_slice: [0, 1]
+    reason: "问题指向上一轮排序结果的第一名。"
+  comparison_pair:
+    terms: ["这两个人", "他们两个", "这两个候选人", "两个人"]
+    required_keys: ["last_comparison_candidate_ids"]
+    reason: "问题指向上一轮对比中的两个候选人。"
+  candidate_pool:
+    terms: ["这里面", "这里面的", "其中", "其中的", "这些人", "这些候选人", "他们", "她们", "这批人", "这几个人"]
+    required_keys: ["last_candidate_pool_ids"]
+    reason: "问题指向上一轮候选人集合。"
+  last_candidate:
+    terms: ["刚才那个人", "这个人", "那个人", "他", "她", "上一个候选人"]
+    required_keys: ["last_candidate_id"]
+    reason: "问题指向上一轮聚焦的单个候选人。"
+  jd:
+    terms: ["刚才那个岗位", "刚才的岗位", "这个岗位", "刚才的 JD", "刚才的jd", "这个 JD", "这个jd", "这个职位"]
+    required_keys: ["last_jd_criteria"]
+    reason: "问题指向上一轮岗位/JD 条件。"
+  ambiguous:
+    terms: ["刚才", "上一次", "前面", "上面"]
+    reason: "问题含有承接词但引用对象不明确。"
+
+context_references:
+  ranking_top_k:
+    terms: ["前三名", "前 3 名", "top3", "Top3", "TOP3"]
+    reason: "问题指向上一轮排序结果的前三名。"
+  ranking_top:
+    terms: ["第一名", "排第一", "第一位", "top1", "Top1", "TOP1"]
+    reason: "问题指向上一轮排序结果的第一名。"
+  comparison_pair:
+    terms: ["这两个人", "他们两个", "这两个候选人", "两个人"]
+    reason: "问题指向上一轮对比中的两个候选人。"
+  candidate_pool:
+    terms: ["这里面", "这里面的", "其中", "其中的", "这些人", "这些候选人", "他们", "她们", "这批人", "这几个人"]
+    reason: "问题指向上一轮候选人集合。"
+  last_candidate:
+    terms: ["刚才那个人", "这个人", "那个人", "他", "她", "上一个候选人"]
+    reason: "问题指向上一轮聚焦的单个候选人。"
+  jd:
+    terms: ["刚才那个岗位", "刚才的岗位", "这个岗位", "刚才的 JD", "刚才的jd", "这个 JD", "这个jd", "这个职位"]
+    reason: "问题指向上一轮岗位/JD 条件。"
+  ambiguous:
+    terms: ["刚才", "上一次", "前面", "上面"]
+    reason: "问题含有承接词但引用对象不明确。"
+
+context_resolution:
+  explicit_candidates_override_ref_types: [candidate_pool, comparison_pair]
+  single_candidate_ref_types: [last_candidate, ranking_top]
+  pair_ref_types: [comparison_pair]
+  pool_ref_types: [candidate_pool]
+  current_turn_outputs:
+    - intent: candidate_ranking
+      ref_types: [ranking_top, ranking_top_k]
+      question_signal_group: question_subject_terms
+
+intent_convergence:
+  follow_up:
+    - context_types: [last_candidate]
+      signal_groups: [experience_terms, single_candidate_evidence_terms]
+      intent: evidence_question
+    - context_types: [ranking_top, ranking_top_k, last_candidate]
+      signal_groups: [project_terms, profile_terms]
+      intent: candidate_profile_intro
+    - context_types: [candidate_pool]
+      signal_groups: [context_pool_priority_terms]
+      intent: candidate_ranking
+  single_candidate_fit:
+    context_types: [last_candidate, ranking_top]
+    signal_groups: [fit_terms]
+    sub_intents: [candidate_profile_intro, evidence_question]
+
+candidate_scope_rules:
+  priority: [explicit_candidates, context_candidates, hard_filter_conditions, all_candidates]
+  context_candidate_ref_types: [candidate_pool, ranking_top, ranking_top_k, comparison_pair]
+  explicit_candidate_min_count: 2
+  job_terms_are_filter_only_with_signals: ["筛选", "只看", "有", "具备", "背景", "经验", "经历"]
+
+ranking_intent_rules:
+  multi_candidate_min_count: 3
+  candidate_set_ref_types: [candidate_pool, ranking_top_k]
+  fit_signal_groups: [context_pool_priority_terms]
+  force_ranking_over_compare_for_min_candidates: 3
+  requires_jd_criteria: true
+
+jd_selection_rules:
+  criteria_sources: [existing_jd_library, general_resume_fallback]
+  forbid_llm_generated_criteria: true
+  job_text_usage: criteria_only
+  forbid_job_text_as_candidate_filter_without_filter_signal: true
+
+sensitive_interview_terms:
+  age: ["年龄", "岁数", "几岁"]
+  gender: ["性别", "男", "女"]
+  marital: ["婚育", "已婚", "未婚"]
+  ethnicity: ["民族"]
+  politics: ["政治面貌", "党员"]
+  photo: ["照片", "长相"]
+
+intent_reasons:
+  out_of_scope: "问题不属于简历、候选人搜索、项目证据核查或招聘决策范围。"
+  candidate_count: "问题包含数量/总数信号，应先得到候选人集合再计数。"
+  candidate_list: "问题包含名单/列出信号，应返回匹配候选人。"
+  candidate_profile_intro: "问题指向某位候选人的资料、经历或项目，应解析候选人后读取画像。"
+  evidence_question: "问题显式要求证据或体现位置，应检索项目证据。"
+  interview_question_generation: "问题要求基于候选人简历生成面试问题，应解析候选人并基于画像和证据生成。"
+  candidate_compare_pair: "问题要求两人比较，应只构建这两人的对比事实包。"
+  candidate_ranking: "问题要求排序/推荐，应使用 JD scoring 后排序。"
+  candidate_filter: "问题包含领域、技能或关键词筛选信号，应召回匹配候选人。"
+  fallback_with_evidence: "由问题中的关键词和句式触发该子意图。"
+  fallback: "由整体语义触发该子意图。"
+
+risk_flags:
+  allowed_prefixes:
+    - "llm_router_fallback"
+    - "router_schema_validation_failed"
+    - "router_payload_normalize_failed"
+    - "out_of_scope_guard_applied"
+    - "pair_compare_guard_applied"
+    - "compound_guard_applied"
+    - "evidence_guard_applied"
+    - "context_reference_guard_applied"
+    - "sensitive_interview_guard_applied"
+    - "llm_router_contract_overridden_by_rule_guard"
+    - "condition_completion_applied"
+    - "condition_completion_failed"
+    - "router_rule_guard_failed"
+    - "router_finalizer_failed"
+    - "router_scenario_fallback"
+    - "intent_convergence_guard_applied"

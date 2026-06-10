@@ -1,0 +1,8 @@
+oversized_block_count: 60
+oversized_token_budget: 4800
+dense_block_count: 32
+dense_avg_block_length: 48
+messy_min_section_hit_rate: 0.08
+messy_duplicate_ratio: 0.18
+low_ocr_noise_ratio: 0.28
+mixed_language_ratio: 0.25

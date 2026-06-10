@@ -1,0 +1,19 @@
+domain_name: AI Search
+aliases:
+  - ai search
+  - ai搜索
+  - 智能检索
+  - 检索
+  - 向量检索
+  - intelligent retrieval
+concepts:
+  - 搜索系统
+  - 推荐系统
+search_hints:
+  - 检索
+  - 搜索
+  - 召回
+local_concepts:
+  - name: 向量检索
+    type: concept
+    aliases: [vector search, 向量搜索]

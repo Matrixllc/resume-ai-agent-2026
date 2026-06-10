@@ -1,0 +1,36 @@
+work_sections:
+  - 工作经历
+  - 工作经验
+  - Work Experience
+  - Experience
+education_sections:
+  - 教育经历
+  - 教育背景
+  - Education
+  - Education Experience
+skill_sections:
+  - 技能
+  - 专业技能
+  - 个人技能
+  - Skills
+project_sections:
+  - 项目经历
+  - 项目经验
+  - 项目背景
+  - 个人项目
+  - 个人项目经历
+  - 科研经历
+  - 科研项目
+  - 研究经历
+  - 研究项目
+  - Projects
+  - Project
+  - Personal Project
+  - Personal Projects
+  - Research Experience
+  - Research Project
+summary_sections:
+  - 自我评价
+  - 个人总结
+  - Summary
+  - Profile

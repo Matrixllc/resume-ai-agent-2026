@@ -1,0 +1,23 @@
+domain_name: 计算机
+aliases:
+  - 计算机
+  - 计算机领域
+  - 软件工程
+  - 软件开发
+  - 技术
+  - computer science
+  - software engineering
+concepts:
+  - 计算机经验
+  - 软件工程经验
+search_hints:
+  - Python
+  - Java
+  - SQL
+  - 后端
+  - 开发
+  - 编程
+local_concepts:
+  - name: 后端开发
+    type: concept
+    aliases: [后端, backend]

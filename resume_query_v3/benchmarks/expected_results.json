@@ -1,0 +1,15 @@
+{
+  "david.pdf": {
+    "document_profile": "oversized_resume",
+    "min_work_count": 2,
+    "education_count": 2,
+    "project_count": 4,
+    "stored_vector_count": 4
+  },
+  "kim.pdf": {
+    "document_profile": "oversized_resume",
+    "min_work_count": 3,
+    "education_count": 1,
+    "min_project_count": 1
+  }
+}

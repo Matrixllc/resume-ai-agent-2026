@@ -1,0 +1,4 @@
+min_field_confidence: 0.45
+min_chunk_confidence: 0.4
+min_tag_confidence: 0.45
+require_evidence: true

@@ -1,0 +1,191 @@
+version: "v1"
+workflows:
+  candidate_count:
+    priority: 10
+    match:
+      intents:
+        - candidate_count
+      scenarios:
+        - hard_filter
+    artifact_type: candidate_collection
+    tool_calls:
+      - tool: filter_candidates
+        produces: candidate_collection
+        default_output_key: candidate_pool
+      - tool: count_candidates
+        consumes: candidate_collection
+        produces: candidate_count
+
+  candidate_list:
+    priority: 10
+    match:
+      intents:
+        - candidate_list
+      scenarios:
+        - hard_filter
+    artifact_type: candidate_collection
+    tool_calls:
+      - tool: filter_candidates
+        produces: candidate_collection
+        default_output_key: candidate_pool
+
+  candidate_profile_intro:
+    priority: 30
+    match:
+      intents:
+        - candidate_profile_intro
+      scenarios:
+        - soft_summary
+    artifact_type: candidate_profile
+    tool_calls:
+      - tool: resolve_candidate_reference
+        produces: candidate_collection
+        default_output_key: resolved_candidate
+      - tool: get_candidate_profiles_intro
+        consumes: candidate_collection
+        produces: candidate_profile
+        default_output_key: candidate_profile
+
+  candidate_compare_pair:
+    priority: 50
+    match:
+      intents:
+        - candidate_compare_pair
+      scenarios:
+        - compare_rank
+    artifact_type: evidence_collection
+    tool_calls:
+      - tool: resolve_candidate_reference
+        produces: candidate_collection
+        default_output_key: resolved_candidates
+      - tool: build_comparison_pack
+        consumes: candidate_collection
+        produces: evidence_collection
+        default_output_key: comparison_pack
+
+  candidate_ranking:
+    priority: 40
+    match:
+      intents:
+        - candidate_ranking
+      scenarios:
+        - compare_rank
+    artifact_type: ranked_candidates
+    tool_calls:
+      - tool: filter_candidates
+        produces: candidate_collection
+        default_output_key: candidate_pool
+      - tool: load_default_jd_criteria
+        produces: jd_criteria
+        default_output_key: criteria
+      - tool: score_candidates_for_jd
+        consumes:
+          - candidate_collection
+          - jd_criteria
+        produces: scored_candidates
+        default_output_key: scores
+      - tool: rank_candidates
+        consumes: scored_candidates
+        produces: ranked_candidates
+        default_output_key: ranked_candidates
+
+  evidence_question:
+    priority: 35
+    match:
+      intents:
+        - evidence_question
+      scenarios:
+        - fact_check
+    artifact_type: evidence_collection
+    tool_calls:
+      - tool: resolve_candidate_reference
+        produces: candidate_collection
+        default_output_key: resolved_candidate
+      - tool: search_candidate_evidence
+        consumes: candidate_collection
+        produces: evidence_collection
+        default_output_key: candidate_evidence
+
+  interview_question_generation:
+    priority: 45
+    match:
+      intents:
+        - interview_question_generation
+    artifact_type: generated_questions
+    tool_calls:
+      - tool: resolve_candidate_reference
+        produces: candidate_collection
+        default_output_key: resolved_candidate
+      - tool: get_candidate_profiles_intro
+        consumes: candidate_collection
+        produces: candidate_profile
+        default_output_key: candidate_profile
+      - tool: search_candidate_evidence
+        consumes: candidate_collection
+        produces: evidence_collection
+        default_output_key: candidate_evidence
+
+  scoped_count_rank_evidence:
+    priority: 100
+    match:
+      intent: compound
+      required_sub_intents:
+        - candidate_count
+        - candidate_ranking
+        - evidence_question
+      requires_scope: true
+    artifact_type: ranked_candidates
+    evidence:
+      after_rank: true
+      max_candidates: 3
+    sub_tasks:
+      - intent: candidate_count
+        tool_calls:
+          - tool: filter_candidates
+            arguments: {$binding: filter_args}
+            output_key: candidate_pool
+          - tool: count_candidates
+            arguments:
+              candidates: {$ref: candidate_pool, path: [resume_identity], map: true}
+            depends_on: [candidate_pool]
+            output_key: candidate_count
+      - intent: candidate_ranking
+        requires_jd_criteria: true
+        requires_evidence: true
+        tool_calls:
+          - tool: {$binding: ranking_criteria_tool}
+            output_key: criteria
+          - tool: score_candidates_for_jd
+            arguments:
+              candidate_ids: {$ref: candidate_pool, path: [resume_identity], map: true}
+              criteria: {$ref: criteria}
+            depends_on: [candidate_pool, criteria]
+            output_key: scores
+          - tool: rank_candidates
+            arguments:
+              scored_candidates: {$ref: scores}
+            depends_on: [scores]
+            output_key: ranked_candidates
+      - intent: evidence_question
+        requires_evidence: true
+        tool_calls:
+          - tool: search_candidate_evidence
+            arguments:
+              query: {$binding: retrieval_query}
+              candidate_ids: {$ref: ranked_candidates, path: [resume_identity], map: true}
+              max_candidates: {$binding: workflow_evidence_max_candidates}
+            depends_on: [ranked_candidates]
+            output_key: candidate_evidence
+    notes:
+      - compiled_with_scoped_count_rank_evidence_workflow
+      - evidence_after_rank_top_k
+    artifact_contracts:
+      - tool: count_candidates
+        argument: candidates
+        expected_ref: canonical_candidate_collection
+      - tool: score_candidates_for_jd
+        argument: candidate_ids
+        expected_ref: canonical_candidate_collection
+      - tool: search_candidate_evidence
+        argument: candidate_ids
+        expected_ref: ranked_candidates

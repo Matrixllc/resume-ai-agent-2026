@@ -1,0 +1,104 @@
+version: "v1"
+generation_contract:
+  allowed_modes:
+    - rule_grounded_renderer
+    - llm_fill
+    - llm_fill_rejected
+    - rule_fallback_after_llm_error
+task_types:
+  boundary_answer:
+    priority: 100
+    intents_any: [out_of_scope]
+    freedom_level: strict
+    default_layout: boundary
+    fallback_policy: hard_standard
+
+  candidate_comparison_answer:
+    priority: 90
+    intents_any: [candidate_compare_pair]
+    required_tools:
+      all: [build_comparison_pack]
+    freedom_level: strict
+    default_layout: comparison
+    fallback_policy: hard_standard
+    slot_hints:
+      comparison_axis: query_focus
+
+  question_generation_answer:
+    priority: 85
+    intents_any: [interview_question_generation]
+    required_tools:
+      all: [search_candidate_evidence]
+      any: [get_candidate_profile_intro, get_candidate_profiles_intro]
+    trigger_terms_any:
+      - 面试问题
+      - 面试题
+      - 简历问题
+      - 提出问题
+      - 准备问题
+      - 追问
+      - 提问
+      - 问什么
+      - 考察
+    freedom_level: creative_grounded
+    default_layout: question_generation
+    fallback_policy: hard_standard
+    slot_hints:
+      question_count: query_number
+      question_target: query_focus
+
+  candidate_decision_answer:
+    priority: 75
+    intents_any: [candidate_ranking, jd_scoring]
+    required_tools:
+      any: [rank_candidates, score_candidates_for_jd]
+    freedom_level: strict
+    default_layout: decision_chain
+    fallback_policy: hard_standard
+    slot_hints:
+      decision_target: query_focus
+      job_or_direction: normalized_conditions
+
+  candidate_profile_answer:
+    priority: 70
+    intents_any: [candidate_profile_intro, evidence_question]
+    required_tools:
+      any: [get_candidate_profile_intro, get_candidate_profiles_intro, search_candidate_evidence]
+    trigger_terms_any:
+      - 介绍
+      - 信息
+      - 展示
+      - 背景
+      - 经历
+      - 经验
+      - 项目
+      - 有没有
+      - 是否有
+      - 有无
+    freedom_level: guided
+    default_layout: profile
+    fallback_policy: hard_standard
+    slot_hints:
+      fact_check_target: normalized_conditions
+      candidate_count: context_candidates
+
+  candidate_set_answer:
+    priority: 60
+    intents_any: [candidate_count, candidate_list, candidate_filter]
+    required_tools:
+      any: [count_candidates, filter_candidates, list_all_candidates, hybrid_search_candidates]
+    freedom_level: strict
+    default_layout: default
+    fallback_policy: hard_standard
+    slot_hints:
+      set_target: normalized_conditions
+      filter_summary: normalized_conditions
+
+  open_grounded_answer:
+    priority: 0
+    intents_any: []
+    freedom_level: open_limited
+    default_layout: default
+    fallback_policy: hard_standard
+    slot_hints:
+      open_goal: query_focus

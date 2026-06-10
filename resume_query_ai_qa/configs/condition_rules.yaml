@@ -1,0 +1,65 @@
+version: "v1"
+
+condition_types:
+  domain:
+    retrievable: true
+    filter_argument: domains
+  skill:
+    retrievable: true
+    filter_argument: skills_all
+  concept:
+    retrievable: true
+    filter_argument: concepts_all
+  keyword:
+    retrievable: true
+    filter_argument: keywords
+  major:
+    retrievable: true
+    filter_argument: education_keywords
+  experience:
+    retrievable: false
+    filter_argument: keywords
+  scope:
+    retrievable: false
+  ranking_target:
+    retrievable: false
+
+extraction:
+  major_pattern: '([\u4e00-\u9fffA-Za-z0-9+#. ]{1,24}?)(?:相关)?专业'
+  scopes:
+    - pattern: '(相关经验|相关经历|相关背景)'
+      value: 相关经验
+    - pattern: '(项目经验|项目经历|项目)'
+      value: 项目经验
+    - pattern: '(工作经验|工作经历|经历|经验)'
+      value: 经验
+
+preference_target:
+  patterns:
+    - '(?:哪些人|哪些候选人|谁|哪位候选人)?(?:最适合|更适合|适合|适合做|适不适合|是否适合|能不能做|能否胜任|可不可以做)(.+)'
+    - '(?:推荐谁|推荐候选人|推荐哪些人|推荐哪些候选人)(?:做|担任|胜任)?(.+)'
+    - '(?:按|按照)?(.{1,40}(?:岗位|方向|职位|JD|jd).{0,20})(?:排序|排名|排个序|排一下)'
+  pattern: '(?:最适合|谁更适合|更适合|适合做|适不适合|能不能做|能否胜任|可不可以做|推荐谁|推荐候选人)(.+)'
+  eligible_types: [domain, skill, concept]
+
+domain_filter:
+  intersection_terms: [同时属于, 兼具, 都具备]
+
+preferred_type_aliases:
+  domain: [domain, 领域, 行业]
+  major: [major, 专业]
+  skill_concept: [skill, concept, 技能, 经验]
+  scope: [scope]
+
+taxonomy_alias_exclusions:
+  - alias: 推荐
+    when_followed_by: [谁, 候选人, 哪些人, 哪些候选人]
+    when_matching:
+      - '^推荐.{0,20}(最适合|适合|前三名|前 3 名|top3|岗位|职位|方向|JD|jd)'
+
+cleaning:
+  major_prefixes: [请问, 帮我, 帮忙, 一下, 有多少个, 多少个, 几个, 有几个, 哪些, 谁是]
+  dialog_scaffolding: [帮我, 请问, 查询一下, 查一下, 介绍一下, 看看, 找找]
+  intent_scaffolding: [帮我, 请问, 查询一下, 查一下, 介绍一下, 候选人, 有哪些, 有多少个, 都有谁, 谁比较好]
+
+structured_project_tags: [推荐系统, 搜索系统, 交易系统, 发票解析]

@@ -1,0 +1,84 @@
+version: "v1"
+scenarios:
+  hard_filter:
+    description: "严格按结构化领域、技能、概念、专业或岗位条件筛选候选人。"
+    planner: rule
+    allowed_intents: [candidate_count, candidate_list, candidate_filter]
+    examples: ["有多少个金融领域候选人？", "会 Python 和 SQL 的候选人都有谁？"]
+    counter_examples: ["找找可能和金融风控相关的人"]
+
+  open_recall:
+    description: "按相关性、相似性或开放描述召回可能匹配的候选人。"
+    planner: llm
+    allowed_intents: [candidate_count, candidate_list, candidate_filter]
+    examples: ["找找可能和金融风控相关的人", "看看有没有类似推荐系统经验的候选人"]
+    counter_examples: ["金融领域候选人有多少个？"]
+
+  soft_summary:
+    description: "读取并概括候选人画像，不做比较、排序或事实判定。"
+    planner: rule
+    allowed_intents: [candidate_profile_intro]
+    examples: ["介绍一下孟连星", "展示这个人的个人信息"]
+
+  fact_check:
+    description: "围绕明确候选人和问题检索证据，或基于简历证据生成受约束内容。"
+    planner: rule
+    allowed_intents: [evidence_question, interview_question_generation]
+    examples: ["孟连星有没有金融经历？", "根据孟连星的金融项目生成面试问题"]
+
+  evidence_lookup:
+    description: "查找具备某类经历或证据的候选人，当前未绑定明确候选人。"
+    planner: llm
+    allowed_intents: [candidate_filter, evidence_question]
+    examples: ["哪些候选人的项目体现了推荐系统经验？"]
+
+  compare_rank:
+    description: "对候选人进行双人比较、JD 评分或排序推荐。"
+    planner: rule
+    allowed_intents: [candidate_compare_pair, candidate_ranking, jd_scoring]
+    examples: ["孟连星和蒋安然谁更适合？", "这些人里谁值得优先面试？"]
+
+  context_resolution:
+    description: "解析上一轮上下文引用，再交给具体业务意图执行。"
+    planner: rule
+    allowed_intents: [follow_up]
+    examples: ["刚才那个人有哪些风险？"]
+
+  out_of_scope:
+    description: "问题不属于简历问答范围，或触发不可用于招聘决策的敏感边界。"
+    planner: rule
+    allowed_intents: [out_of_scope]
+    examples: ["今天天气怎么样？", "根据候选人年龄设计面试问题"]
+
+# rule router 在 LLM 不可用时按这里生成 scenario。
+# 匹配优先级固定为：open_recall -> with_candidate_reference ->
+# with_filter_scope -> requires_evidence_without_scope -> default。
+resolution_rules:
+  out_of_scope:
+    default: out_of_scope
+  candidate_count:
+    default: hard_filter
+    open_recall: open_recall
+  candidate_list:
+    default: hard_filter
+    open_recall: open_recall
+  candidate_filter:
+    default: hard_filter
+    open_recall: open_recall
+    with_filter_scope: hard_filter
+    requires_evidence_without_scope: open_recall
+  evidence_question:
+    default: evidence_lookup
+    with_candidate_reference: fact_check
+  candidate_compare_pair:
+    default: compare_rank
+  candidate_ranking:
+    default: compare_rank
+  jd_scoring:
+    default: compare_rank
+  candidate_profile_intro:
+    default: soft_summary
+  interview_question_generation:
+    default: fact_check
+  follow_up:
+    default: context_resolution

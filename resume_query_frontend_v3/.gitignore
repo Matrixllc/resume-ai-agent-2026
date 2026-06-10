@@ -1,0 +1,4 @@
+.next/
+.next-dev/
+.next-build-watch/
+node_modules/

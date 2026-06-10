@@ -1,0 +1,438 @@
+version: "v1"
+layouts:
+  candidate_blocks:
+    description: "多人画像 + 经历核查，按候选人分块"
+    priority: 40
+    task_types:
+      - candidate_profile_answer
+    freedom_levels:
+      - guided
+    required_tools:
+      all:
+        - search_candidate_evidence
+      any:
+        - get_candidate_profile_intro
+        - get_candidate_profiles_intro
+    trigger_terms:
+      profile: ["个人信息", "信息展示", "介绍", "资料", "背景", "项目经验", "项目经历"]
+      fact: ["有没有", "是否有", "有无", "金融经历", "金融经验", "能源经历", "运营经历", "经历", "经验"]
+      connector: ["以及", "并且", "同时", "还有", "分别"]
+    sections:
+      - conclusion
+      - candidate_blocks
+      - main_basis
+    required_sections:
+      - conclusion
+      - candidate_blocks
+      - main_basis
+    required_title_sections: [conclusion, main_basis]
+    first_section: conclusion
+    titles:
+      conclusion: "结论"
+      personal_info: "个人信息"
+      experience_check: "经历核查"
+      main_basis: "主要依据"
+    prompt_template: |
+      结论：说明本轮识别到哪些候选人，并声明按人展示画像与经历核查。
+      对每位候选人分别输出：
+      1. 候选人姓名
+      个人信息：基于 profile 精简展示求职意向、领域、技能、工作/项目。
+      经历核查：基于 evidence 判断是否有问题中要求的经历；没有证据就说不能确认。
+      主要依据：所有候选人块之后统一列出最多 3 条关键证据。
+    evidence_policy: "优先使用项目证据，其次工作经历，标签只能作为弱证据。"
+    generation_instructions:
+      - "同一候选人的个人信息和经历核查必须相邻。"
+      - "不要把所有证据铺满，只保留关键证据。"
+      - "没有明确经历证据时写不能确认，不要根据背景推断。"
+    rules:
+      - "同一候选人的个人信息和经历核查必须相邻。"
+      - "主要依据只能放在所有候选人块之后。"
+      - "不要在候选人块之间插入关键理由、补充证据或主要依据。"
+    section_contract:
+      conclusion: "说明展示对象，并概括是否查到目标事实证据。"
+      candidate_blocks: "每位候选人一块，个人信息和目标事实核查相邻。"
+      main_basis: "列出支撑目标事实判断的关键证据；证据不足时说明未查到明确证据。"
+    hard_constraints:
+      - "只能使用 grounded context 中的候选人。"
+      - "没有 evidence 时必须说不能确认。"
+      - "不能把领域/技能标签推断成明确项目证据。"
+    claim_contract:
+      required_support: true
+      evidence_ids_from_context: true
+    fallback_sections:
+      - conclusion
+      - found_facts
+      - main_basis
+      - insufficient_info
+
+  decision_chain:
+    description: "数量 + ranking + 依据的决策链路"
+    priority: 35
+    task_types:
+      - candidate_decision_answer
+    freedom_levels:
+      - strict
+    required_tools:
+      all:
+        - count_candidates
+        - rank_candidates
+    sections:
+      - conclusion
+      - count
+      - ranking
+      - key_reason
+      - main_basis
+    required_sections:
+      - conclusion
+      - count
+      - ranking
+      - key_reason
+      - main_basis
+    required_title_sections: [conclusion, count, ranking, key_reason, main_basis]
+    first_section: conclusion
+    titles:
+      conclusion: "结论"
+      count: "候选人总数"
+      ranking: "排序结果"
+      key_reason: "关键理由"
+      main_basis: "主要依据"
+    prompt_template: |
+      结论：第一段同时回答候选人数量和当前推荐对象。
+      候选人总数：保留 count_candidates 的数量。
+      排序结果：按 rank_candidates 顺序展示，不改分数和顺序。
+      关键理由：解释为什么推荐第一名；同分时说明 tie-break。
+      主要依据：最多 3 条关键项目/工作证据。
+    evidence_policy: "排序顺序和分数来自 rank_candidates；证据只辅助解释，不得改变排名。"
+    generation_instructions:
+      - "不要展开完整个人画像。"
+      - "结论优先，依据放最后。"
+      - "如果排序证据不足，说明缺失信息。"
+    rules:
+      - "第一段必须是结论，同时回答数量和推荐对象。"
+      - "不要展开完整个人画像。"
+      - "主要依据放在最后。"
+    section_contract:
+      conclusion: "第一段同时回答候选人数量和当前推荐对象。"
+      count: "数量必须来自 count_candidates。"
+      ranking: "排序必须按 rank_candidates 顺序展示，不得重排。"
+      key_reason: "解释为什么推荐第一名；同分时说明 tie-break。"
+      main_basis: "列出支持排序或推荐的依据。"
+    hard_constraints:
+      - "不能改变 count_candidates 的数量。"
+      - "不能改变 rank_candidates 的排序、分数或候选人姓名。"
+      - "证据只能解释排序，不能改变排序。"
+    claim_contract:
+      required_claim_types: [count, ranking]
+      ranking_from_context: true
+    fallback_sections:
+      - conclusion
+      - found_facts
+      - main_basis
+      - insufficient_info
+
+  comparison:
+    description: "双人比较"
+    priority: 30
+    task_types:
+      - candidate_comparison_answer
+    freedom_levels:
+      - strict
+    required_tools:
+      all:
+        - build_comparison_pack
+    sections:
+      - conclusion
+      - comparison
+      - main_basis
+    required_sections:
+      - conclusion
+      - comparison
+      - main_basis
+    required_title_sections: [conclusion, comparison, main_basis]
+    first_section: conclusion
+    titles:
+      conclusion: "结论"
+      comparison: "对比"
+      main_basis: "主要依据"
+    prompt_template: |
+      结论：明确回答两人中谁更适合，或说明证据不足无法绝对判断。
+      对比：只比较 comparison_pack 中两位候选人的技能、领域、项目和风险。
+      主要依据：列出最多 3 条支持结论的证据。
+    evidence_policy: "只使用 build_comparison_pack 中的两人信息，不引入第三人。"
+    generation_instructions:
+      - "有岗位/领域时围绕该方向比较。"
+      - "没有足够证据时输出不确定，而不是强行判断。"
+    rules:
+      - "只比较已解析的两位候选人，不引入第三人。"
+    section_contract:
+      conclusion: "明确回答两人中谁更适合，或说明证据不足无法绝对判断。"
+      comparison: "只比较 comparison_pack 中两位候选人的技能、领域、项目和风险。"
+      main_basis: "列出支持结论的证据。"
+    hard_constraints:
+      - "只能比较 build_comparison_pack 中的两位候选人。"
+      - "不能引入第三位候选人。"
+      - "没有足够证据时输出不确定。"
+    claim_contract:
+      required_claim_types: [comparison]
+      comparison_subjects_from_context: true
+    fallback_sections:
+      - conclusion
+      - found_facts
+      - main_basis
+      - insufficient_info
+
+  fit_analysis:
+    description: "单候选岗位适配分析"
+    priority: 25
+    task_types:
+      - candidate_decision_answer
+      - candidate_profile_answer
+    freedom_levels:
+      - guided
+    required_tools:
+      any:
+        - get_candidate_profile_intro
+        - get_candidate_profiles_intro
+    trigger_terms:
+      fit: ["适合", "适不适合", "是否适合", "能不能做", "能否胜任", "可不可以做", "匹配", "胜任"]
+    sections:
+      - conclusion
+      - key_reason
+      - main_basis
+      - risks
+    required_sections:
+      - conclusion
+      - key_reason
+      - main_basis
+      - risks
+    required_title_sections: [conclusion, key_reason, main_basis, risks]
+    first_section: conclusion
+    titles:
+      conclusion: "结论"
+      key_reason: "关键理由"
+      main_basis: "主要依据"
+      risks: "缺失/风险"
+    prompt_template: |
+      结论：第一段回答是否适合目标岗位/方向。
+      关键理由：概括适配点和取舍。
+      主要依据：列出最多 3 条项目/工作证据。
+      缺失/风险：说明未查到的关键证据、需要面试确认的点。
+    evidence_policy: "适配判断必须基于 profile/evidence；无证据时明确不确定。"
+    generation_instructions:
+      - "不要把语义相关说成已有项目经验。"
+      - "可以给建议，但必须区分事实和判断。"
+    rules:
+      - "第一段必须回答是否适合。"
+      - "没有证据时明确说明不确定。"
+    section_contract:
+      conclusion: "第一段回答是否适合目标岗位/方向。"
+      key_reason: "概括适配点和取舍。"
+      main_basis: "列出项目/工作证据。"
+      risks: "说明未查到的关键证据、需要面试确认的点。"
+    hard_constraints:
+      - "适配判断必须基于 profile/evidence。"
+      - "不要把语义相关说成已有项目经验。"
+      - "没有证据时必须说明不确定。"
+    fallback_sections:
+      - conclusion
+      - found_facts
+      - main_basis
+      - insufficient_info
+
+  profile:
+    description: "候选人画像"
+    priority: 10
+    task_types:
+      - candidate_profile_answer
+    freedom_levels:
+      - guided
+    required_tools:
+      any:
+        - get_candidate_profile_intro
+        - get_candidate_profiles_intro
+    sections:
+      - conclusion
+      - profile
+      - main_basis
+    required_sections:
+      - conclusion
+      - profile
+      - main_basis
+    required_title_sections: [conclusion, main_basis]
+    first_section: conclusion
+    titles:
+      conclusion: "结论"
+      profile: "候选人信息"
+      main_basis: "主要依据"
+    prompt_template: |
+      结论：说明展示的候选人。
+      候选人信息：基于 profile 展示求职意向、技能、领域、教育、工作和项目摘要。
+      主要依据：最多 3 条 profile/evidence 来源。
+    evidence_policy: "联系方式默认隐藏；只展示 tool_results 中已有信息。"
+    generation_instructions:
+      - "多人 profile 要分块展示。"
+      - "不要新增联系方式或敏感信息。"
+    rules: []
+    section_contract:
+      conclusion: "说明展示的候选人。"
+      profile: "基于 profile 展示求职意向、技能、领域、教育、工作和项目摘要。"
+      main_basis: "列出 profile/evidence 来源。"
+    hard_constraints:
+      - "只展示 tool_results 中已有信息。"
+      - "联系方式默认隐藏。"
+      - "不要输出敏感属性。"
+    fallback_sections:
+      - conclusion
+      - found_facts
+      - main_basis
+      - insufficient_info
+
+  simple_fact:
+    description: "事实核查或证据回答"
+    priority: 8
+    task_types:
+      - candidate_profile_answer
+      - open_grounded_answer
+    freedom_levels:
+      - guided
+      - open_limited
+    required_tools:
+      all:
+        - search_candidate_evidence
+    sections:
+      - conclusion
+      - main_basis
+    required_sections:
+      - conclusion
+      - main_basis
+    required_title_sections: [conclusion, main_basis]
+    first_section: conclusion
+    titles:
+      conclusion: "结论"
+      main_basis: "主要依据"
+    prompt_template: |
+      结论：直接回答事实核查结果。
+      主要依据：列出匹配到的证据；没有证据则说明不能确认。
+    evidence_policy: "事实核查只能依据 search_candidate_evidence。"
+    generation_instructions:
+      - "没有证据时不要推断。"
+      - "证据摘要要短。"
+    rules: []
+    section_contract:
+      conclusion: "直接回答事实核查结果。"
+      main_basis: "列出匹配证据；没有证据则说明不能确认。"
+    hard_constraints:
+      - "事实核查只能依据 search_candidate_evidence。"
+      - "没有 evidence 时不能推断。"
+    fallback_sections:
+      - conclusion
+      - found_facts
+      - main_basis
+      - insufficient_info
+
+  question_generation:
+    description: "根据候选人简历证据生成面试问题或追问"
+    priority: 32
+    task_types:
+      - question_generation_answer
+    freedom_levels:
+      - creative_grounded
+    required_tools:
+      all:
+        - search_candidate_evidence
+      any:
+        - get_candidate_profile_intro
+        - get_candidate_profiles_intro
+    trigger_terms:
+      question: ["面试问题", "面试题", "简历问题", "提出问题", "准备问题", "追问", "提问", "进行提问", "提几个问题", "问几个问题", "出一些技术问题", "考察", "问什么"]
+    sections:
+      - conclusion
+      - interview_questions
+      - follow_up_directions
+      - main_basis
+    required_sections:
+      - conclusion
+      - interview_questions
+      - follow_up_directions
+      - main_basis
+    required_title_sections: [conclusion, interview_questions, follow_up_directions, main_basis]
+    first_section: conclusion
+    titles:
+      conclusion: "结论"
+      interview_questions: "面试问题"
+      follow_up_directions: "追问方向"
+      main_basis: "主要依据"
+    prompt_template: |
+      结论：说明是否能基于简历证据生成面试问题；证据不足时提示针对性不足。
+      面试问题：根据 query 要求的数量生成问题。问题必须围绕不同 evidence/profile 点变化，不能套固定五问。
+      追问方向：给出 3-5 个可继续深挖的方向。
+      主要依据：列出最多 3 条生成问题所依据的项目/工作证据。
+    evidence_policy: "面试问题必须来自候选人 profile/evidence；禁止涉及年龄、性别、婚育、民族、政治面貌等敏感属性。"
+    generation_instructions:
+      - "每个问题应绑定到具体项目、技能、业务指标、决策过程、风险复盘或岗位相关性。"
+      - "问题之间要有角度差异，避免固定模板重复。"
+      - "如果 query 指定数量，按指定数量输出。"
+    rules:
+      - "只能基于候选人的 profile 和 evidence 生成问题。"
+      - "没有领域证据时必须提示针对性不足。"
+      - "不要生成涉及年龄、性别、婚育、民族、政治面貌等敏感属性的问题。"
+    section_contract:
+      conclusion: "说明是否能基于简历证据生成面试问题；证据不足时提示针对性不足。"
+      interview_questions: "根据 query 要求数量生成问题；问题必须围绕不同 evidence/profile 点变化。"
+      follow_up_directions: "给出可继续深挖的方向。"
+      main_basis: "列出生成问题所依据的项目/工作证据。"
+    hard_constraints:
+      - "只能基于 grounded context 中的 profile 和 evidence 生成问题。"
+      - "不能新增 context 外项目、公司、技术、指标。"
+      - "禁止敏感属性问题。"
+    fallback_sections:
+      - conclusion
+      - found_facts
+      - main_basis
+      - insufficient_info
+
+  boundary:
+    description: "边界提示"
+    priority: 5
+    task_types:
+      - boundary_answer
+    freedom_levels:
+      - strict
+    intents:
+      - out_of_scope
+    sections:
+      - conclusion
+    rules: []
+    section_contract:
+      conclusion: "说明问题不属于当前简历问答范围，或说明敏感边界。"
+    hard_constraints:
+      - "不调用简历事实进行越界回答。"
+    fallback_sections:
+      - conclusion
+
+  default:
+    description: "默认回答布局"
+    priority: 0
+    task_types:
+      - candidate_set_answer
+      - open_grounded_answer
+    freedom_levels:
+      - strict
+      - guided
+      - open_limited
+    sections:
+      - conclusion
+    required_sections:
+      - conclusion
+    required_title_sections: []
+    section_contract:
+      conclusion: "根据 grounded context 给出结论；信息不足时说明不足。"
+    hard_constraints:
+      - "只能使用 grounded context 中的事实。"
+    fallback_sections:
+      - conclusion
+      - found_facts
+      - main_basis
+      - insufficient_info
+      - main_basis
+    rules: []

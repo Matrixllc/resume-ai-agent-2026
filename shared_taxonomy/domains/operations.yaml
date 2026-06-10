@@ -1,0 +1,34 @@
+domain_name: Operations
+aliases:
+  - 运营
+  - 运营领域
+  - 运营行业
+  - 用户运营
+  - 增长运营
+  - 活动运营
+  - 商家运营
+  - 内容运营
+  - 会员运营
+  - operations
+concepts:
+  - 用户运营
+  - 增长运营
+  - 活动运营
+  - 商家运营
+  - 内容运营
+  - 会员运营
+search_hints:
+  - 用户增长
+  - 活动策划
+  - 内容运营
+  - 商家运营
+  - 会员运营
+  - 数据复盘
+  - 转化率
+local_concepts:
+  - name: 用户增长
+    type: concept
+    aliases: [用户增长, 增长, 拉新, 留存]
+  - name: 运营复盘
+    type: concept
+    aliases: [复盘, 数据复盘, 活动复盘]

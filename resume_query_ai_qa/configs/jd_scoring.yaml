@@ -1,0 +1,33 @@
+version: "v1"
+total_score: 100
+default_jd_path: "JD.md"
+dimensions:
+  project_jd_evidence:
+    weight: 40
+    evidence_required: true
+    description: "Project-level evidence that directly matches JD terms."
+  domain_match:
+    weight: 20
+    evidence_required: true
+    description: "Domain match between candidate evidence and JD domains."
+  required_skill_match:
+    weight: 15
+    evidence_required: true
+    description: "Required skill match."
+  work_experience_years:
+    weight: 15
+    evidence_required: false
+    description: "Conservative estimate of relevant work experience years."
+  communication_or_language:
+    weight: 5
+    evidence_required: false
+    description: "Communication, language, overseas, or documentation signals."
+  risk_penalty:
+    weight: -10
+    evidence_required: true
+    description: "Penalty for missing, weak, or conflicting information."
+
+rules:
+  ranking_requires_criteria: true
+  no_user_jd_loads_default_jd: true
+  aggregator_may_explain_but_not_reorder: true

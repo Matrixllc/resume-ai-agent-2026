@@ -1,0 +1,439 @@
+version: "v1"
+tools:
+  list_all_candidates:
+    description: "Return every candidate in the resume store."
+    deterministic: true
+    read_only: true
+    produces:
+      - candidate_collection
+    consumes: []
+    scope: all
+    default_output_key: candidate_pool
+    roles: [candidate_source]
+    binding_kind: list_candidates
+  filter_candidates:
+    description: "Hard-filter candidates through indexed candidate_tags/project_tags. Use domains_any for domain union, domains_all for domain intersection, skills_all and concepts_all for within-group intersection, and intersect different groups. Legacy domain/skills/project_tags remain compatibility inputs."
+    deterministic: true
+    read_only: true
+    produces:
+      - candidate_collection
+    consumes: []
+    scope: filtered
+    default_output_key: candidate_pool
+    roles: [candidate_source, structured_filter]
+    fallback_tool: hybrid_search_candidates
+    binding_kind: structured_filter
+  count_candidates:
+    description: "Count a supplied candidate collection or candidate id list."
+    deterministic: true
+    read_only: true
+    produces:
+      - candidate_count
+    consumes:
+      - candidate_collection
+    scope: inherited
+    default_output_key: candidate_count
+    binding_kind: count_collection
+  get_candidate_brief:
+    description: "Fetch a compact candidate profile by candidate id."
+    deterministic: true
+    read_only: true
+    produces:
+      - candidate_profile
+    consumes:
+      - candidate_collection
+    scope: candidate
+    default_output_key: candidate_profile
+    binding_kind: single_profile
+  get_candidate_profile_intro:
+    description: "Fetch a privacy-safe candidate profile introduction."
+    deterministic: true
+    read_only: true
+    hides_contact_by_default: true
+    produces:
+      - candidate_profile
+    consumes:
+      - candidate_collection
+    scope: candidate
+    default_output_key: candidate_profile
+    roles: [evidence_capable]
+    binding_kind: single_profile
+  get_candidate_profiles_intro:
+    description: "Fetch privacy-safe profile introductions for up to five resolved candidates."
+    deterministic: true
+    read_only: true
+    hides_contact_by_default: true
+    max_items: 5
+    produces:
+      - candidate_profile
+    consumes:
+      - candidate_collection
+    scope: candidate_collection
+    default_output_key: candidate_profile
+    roles: [evidence_capable]
+    binding_kind: multi_profile
+  get_candidate_evidence:
+    description: "Fetch evidence for a candidate."
+    deterministic: true
+    read_only: true
+    produces:
+      - evidence_collection
+    consumes:
+      - candidate_profile
+    scope: candidate
+    default_output_key: candidate_evidence
+    roles: [evidence_capable]
+    binding_kind: single_evidence
+  search_candidate_evidence:
+    description: "Search evidence within resolved candidates or candidate scope. Query should come from retrieval_terms/cleaned evidence terms, not from normalized filter values alone."
+    deterministic: true
+    read_only: true
+    produces:
+      - evidence_collection
+    consumes:
+      - candidate_collection
+    scope: filtered
+    default_output_key: candidate_evidence
+    roles: [evidence_capable]
+    binding_kind: search_evidence
+  hybrid_search_candidates:
+    description: "Recall candidates by semantic query, optionally constrained by candidate_ids. Use for open recall/soft discovery; do not use as the canonical source for hard filters or single-candidate fact checks."
+    deterministic: true
+    read_only: true
+    produces:
+      - candidate_collection
+      - evidence_collection
+    consumes: []
+    scope: filtered
+    default_output_key: candidate_pool
+    roles: [candidate_source, evidence_capable]
+    binding_kind: semantic_search
+  resolve_candidate_reference:
+    description: "Resolve names, pronouns, and session context into candidate ids."
+    deterministic: true
+    read_only: true
+    bind_primary_artifact: false
+    produces:
+      - candidate_collection
+    consumes: []
+    scope: filtered
+    default_output_key: resolved_candidate
+    roles: [candidate_source]
+    binding_kind: resolve_reference
+  build_comparison_pack:
+    description: "Build a bounded evidence/profile pack for exactly two resolved candidates."
+    deterministic: true
+    read_only: true
+    produces:
+      - evidence_collection
+    consumes:
+      - candidate_collection
+    scope: filtered
+    default_output_key: comparison_pack
+    roles: [evidence_capable]
+    binding_kind: comparison_pack
+  load_default_jd_criteria:
+    description: "Load default JD scoring criteria."
+    deterministic: true
+    read_only: true
+    produces:
+      - jd_criteria
+    consumes: []
+    scope: global
+    default_output_key: criteria
+    roles: [criteria_source, default_jd_criteria]
+    binding_kind: criteria_source
+  load_general_resume_criteria:
+    description: "Load generic resume-priority criteria for ranking without a JD."
+    deterministic: true
+    read_only: true
+    produces:
+      - jd_criteria
+    consumes: []
+    scope: global
+    default_output_key: criteria
+    roles: [criteria_source, general_ranking_criteria]
+    binding_kind: criteria_source
+  extract_jd_criteria:
+    description: "Extract JD criteria from user-supplied JD text."
+    deterministic: false
+    read_only: true
+    produces:
+      - jd_criteria
+    consumes: []
+    scope: user_jd
+    default_output_key: criteria
+    roles: [criteria_source]
+    binding_kind: extract_criteria
+  score_candidate_for_jd:
+    description: "Score one candidate against JD criteria."
+    deterministic: true
+    read_only: true
+    produces:
+      - scored_candidates
+    consumes:
+      - candidate_profile
+      - jd_criteria
+    scope: candidate
+    default_output_key: scores
+    roles: [score_source, evidence_capable]
+    binding_kind: score_collection
+  score_candidates_for_jd:
+    description: "Score a candidate collection against JD criteria."
+    deterministic: true
+    read_only: true
+    produces:
+      - scored_candidates
+    consumes:
+      - candidate_collection
+      - jd_criteria
+    scope: inherited
+    default_output_key: scores
+    roles: [score_source, evidence_capable]
+    binding_kind: score_collection
+  rank_candidates:
+    description: "Rank scored candidates."
+    deterministic: true
+    read_only: true
+    produces:
+      - ranked_candidates
+    consumes:
+      - scored_candidates
+    scope: inherited
+    default_output_key: ranked_candidates
+    roles: [ranking_result, evidence_capable]
+    binding_kind: rank_scores
+
+business_limits:
+  profile_display_limit_exceeded:
+    tool: get_candidate_profiles_intro
+    error_code: profile_display_limit_exceeded
+
+intent_result_requirements:
+  candidate_count:
+    all: [count_candidates]
+  candidate_ranking:
+    all: [score_candidates_for_jd, rank_candidates]
+  candidate_compare_pair:
+    all: [build_comparison_pack]
+  candidate_profile_intro:
+    any: [get_candidate_profile_intro, get_candidate_profiles_intro]
+  interview_question_generation:
+    all: [search_candidate_evidence]
+    any: [get_candidate_profile_intro, get_candidate_profiles_intro]
+
+intent_tools:
+  candidate_count:
+    preferred_tools:
+      - filter_candidates
+      - count_candidates
+    allowed_tools:
+      - list_all_candidates
+      - filter_candidates
+      - hybrid_search_candidates
+      - count_candidates
+    scenarios:
+      hard_filter:
+        preferred_tools:
+          - filter_candidates
+          - count_candidates
+        allowed_tools:
+          - list_all_candidates
+          - filter_candidates
+          - count_candidates
+        forbidden_tools:
+          - hybrid_search_candidates
+      open_recall:
+        preferred_tools:
+          - hybrid_search_candidates
+          - count_candidates
+        allowed_tools:
+          - hybrid_search_candidates
+          - count_candidates
+
+  candidate_list:
+    preferred_tools:
+      - filter_candidates
+    allowed_tools:
+      - list_all_candidates
+      - filter_candidates
+      - hybrid_search_candidates
+    scenarios:
+      hard_filter:
+        preferred_tools:
+          - filter_candidates
+        allowed_tools:
+          - list_all_candidates
+          - filter_candidates
+        forbidden_tools:
+          - hybrid_search_candidates
+      open_recall:
+        preferred_tools:
+          - hybrid_search_candidates
+        allowed_tools:
+          - hybrid_search_candidates
+
+  candidate_filter:
+    preferred_tools:
+      - filter_candidates
+    allowed_tools:
+      - filter_candidates
+      - hybrid_search_candidates
+      - get_candidate_brief
+      - get_candidate_evidence
+    scenarios:
+      hard_filter:
+        preferred_tools:
+          - filter_candidates
+        allowed_tools:
+          - filter_candidates
+        forbidden_tools:
+          - hybrid_search_candidates
+      open_recall:
+        preferred_tools:
+          - hybrid_search_candidates
+        allowed_tools:
+          - hybrid_search_candidates
+      evidence_lookup:
+        preferred_tools:
+          - filter_candidates
+          - search_candidate_evidence
+        allowed_tools:
+          - filter_candidates
+          - search_candidate_evidence
+
+  candidate_profile_intro:
+    preferred_tools:
+      - resolve_candidate_reference
+      - get_candidate_profiles_intro
+    allowed_tools:
+      - resolve_candidate_reference
+      - filter_candidates
+      - get_candidate_brief
+      - get_candidate_profile_intro
+      - get_candidate_profiles_intro
+      - get_candidate_evidence
+
+  candidate_compare_pair:
+    preferred_tools:
+      - resolve_candidate_reference
+      - build_comparison_pack
+    allowed_tools:
+      - resolve_candidate_reference
+      - filter_candidates
+      - get_candidate_brief
+      - get_candidate_evidence
+      - build_comparison_pack
+    constraints:
+      min_candidates: 2
+      max_candidates: 2
+
+  candidate_ranking:
+    preferred_tools:
+      - filter_candidates
+      - load_default_jd_criteria
+      - load_general_resume_criteria
+      - score_candidates_for_jd
+      - rank_candidates
+    allowed_tools:
+      - resolve_candidate_reference
+      - load_default_jd_criteria
+      - load_general_resume_criteria
+      - extract_jd_criteria
+      - list_all_candidates
+      - filter_candidates
+      - score_candidates_for_jd
+      - rank_candidates
+    constraints:
+      min_candidates: 2
+      requires_jd_criteria: true
+
+  jd_scoring:
+    preferred_tools:
+      - load_default_jd_criteria
+      - score_candidates_for_jd
+      - rank_candidates
+    allowed_tools:
+      - load_default_jd_criteria
+      - load_general_resume_criteria
+      - extract_jd_criteria
+      - get_candidate_brief
+      - get_candidate_evidence
+      - score_candidate_for_jd
+      - score_candidates_for_jd
+      - rank_candidates
+
+  evidence_question:
+    preferred_tools:
+      - resolve_candidate_reference
+      - search_candidate_evidence
+    allowed_tools:
+      - resolve_candidate_reference
+      - get_candidate_evidence
+      - search_candidate_evidence
+      - hybrid_search_candidates
+    scenarios:
+      fact_check:
+        preferred_tools:
+          - resolve_candidate_reference
+          - search_candidate_evidence
+        allowed_tools:
+          - resolve_candidate_reference
+          - search_candidate_evidence
+          - get_candidate_evidence
+        forbidden_tools:
+          - hybrid_search_candidates
+      evidence_lookup:
+        preferred_tools:
+          - search_candidate_evidence
+        allowed_tools:
+          - resolve_candidate_reference
+          - search_candidate_evidence
+          - get_candidate_evidence
+
+  interview_question_generation:
+    preferred_tools:
+      - resolve_candidate_reference
+      - get_candidate_profiles_intro
+      - search_candidate_evidence
+    allowed_tools:
+      - resolve_candidate_reference
+      - get_candidate_profile_intro
+      - get_candidate_profiles_intro
+      - search_candidate_evidence
+    forbidden_tools:
+      - filter_candidates
+      - hybrid_search_candidates
+      - count_candidates
+      - rank_candidates
+
+  follow_up:
+    preferred_tools:
+      - resolve_candidate_reference
+    allowed_tools:
+      - resolve_candidate_reference
+
+  compound:
+    allowed_tools: []
+    uses_sub_task_tool_union: true
+
+  out_of_scope:
+    allowed_tools: []
+    forbidden_tools:
+      - list_all_candidates
+      - filter_candidates
+      - hybrid_search_candidates
+      - count_candidates
+      - resolve_candidate_reference
+      - get_candidate_brief
+      - get_candidate_profile_intro
+      - get_candidate_profiles_intro
+      - get_candidate_evidence
+      - search_candidate_evidence
+      - build_comparison_pack
+      - load_default_jd_criteria
+      - load_general_resume_criteria
+      - extract_jd_criteria
+      - score_candidates_for_jd
+      - score_candidate_for_jd
+      - rank_candidates

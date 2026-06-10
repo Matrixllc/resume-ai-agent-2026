@@ -1,0 +1,8 @@
+provider: "openai"
+openai_model: "gpt-4.1-mini"
+ollama_model: "llama3:latest"
+openai_base_url: "https://api.openai.com/v1"
+ollama_base_url: "http://localhost:11434"
+temperature: 0.0
+timeout: 20
+max_retries: 0

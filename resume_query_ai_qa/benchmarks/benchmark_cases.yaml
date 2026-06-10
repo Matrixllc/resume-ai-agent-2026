@@ -1,0 +1,367 @@
+version: "v2"
+
+cases:
+  - id: hard_filter_count_list
+    family: hard_filter
+    question: "有多少个金融领域候选人，都有谁？"
+    tiers: [policy, plan, runtime, llm]
+    expected:
+      intent: compound
+      sub_intents: [candidate_count, candidate_list]
+      scenarios: {candidate_count: hard_filter, candidate_list: hard_filter}
+      status: ok
+
+  - id: open_recall_count_list
+    family: open_recall
+    question: "可能有运营领域经验的候选人都有谁，有多少个？"
+    tiers: [policy, plan, runtime, llm]
+    expected:
+      intent: compound
+      sub_intents: [candidate_count, candidate_list]
+      scenarios: {candidate_count: open_recall, candidate_list: open_recall}
+      status: ok
+
+  - id: open_recall
+    family: open_recall
+    question: "找找可能和金融风控相关的人"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: candidate_filter
+      scenarios: {candidate_filter: open_recall}
+      status: ok
+
+  - id: open_recall_background
+    family: open_recall
+    question: "找找可能有金融背景的人"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: candidate_filter
+      scenarios: {candidate_filter: open_recall}
+      status: ok
+
+  - id: profile
+    family: profile
+    question: "介绍一下孟连星"
+    tiers: [policy, plan, runtime, llm]
+    expected:
+      intent: candidate_profile_intro
+      scenarios: {candidate_profile_intro: soft_summary}
+      status: ok
+
+  - id: evidence
+    family: evidence
+    question: "孟连星的金融经验体现在哪里？"
+    tiers: [policy, plan, runtime, llm]
+    expected:
+      intent: evidence_question
+      scenarios: {evidence_question: fact_check}
+      status: ok
+
+  - id: compare
+    family: compare
+    question: "孟连星和孔德程谁更适合金融岗位？"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: candidate_compare_pair
+      scenarios: {candidate_compare_pair: compare_rank}
+      status: ok
+
+  - id: ranking
+    family: ranking
+    question: "谁最适合金融分析岗位？"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: candidate_ranking
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+    safety:
+      required_filter_args:
+        domains_any: ["Finance"]
+
+  - id: ranking_recommend_finance_top3
+    family: ranking
+    question: "推荐最适合金融岗位的前三名"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: candidate_ranking
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+    safety:
+      required_filter_args:
+        domains_any: ["Finance"]
+      forbidden_filter_args:
+        concepts_all: ["推荐系统"]
+
+  - id: ranking_backend_job_all_candidates
+    family: ranking
+    question: "适合后端开发岗位候选人"
+    tiers: [policy, plan]
+    expected:
+      intent: candidate_ranking
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+    safety:
+      required_tools: [list_all_candidates]
+      forbidden_filter_args:
+        concepts_all: ["后端开发"]
+
+  - id: ranking_backend_explicit_experience_filter
+    family: ranking
+    question: "有后端开发经验的候选人谁更适合"
+    tiers: [policy, plan]
+    expected:
+      intent: candidate_ranking
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+    safety:
+      required_filter_args:
+        concepts_all: ["后端开发"]
+
+  - id: follow_up_evidence
+    family: context_followup
+    question: "他有哪些金融经历？"
+    tiers: [policy, plan, runtime, llm]
+    session:
+      last_candidate_id: f2f5cdab04687adfbbba5d99b6dfb844757eb733bdf66403e46197f755777b4c
+    expected:
+      intent: evidence_question
+      context_ref_type: last_candidate
+      scenarios: {evidence_question: fact_check}
+      status: ok
+
+  - id: follow_up_top_profile
+    family: context_followup
+    question: "第一名有哪些项目？"
+    tiers: [policy, plan, runtime, llm]
+    session:
+      last_ranking_candidate_ids: [f2f5cdab04687adfbbba5d99b6dfb844757eb733bdf66403e46197f755777b4c]
+    expected:
+      intent: candidate_profile_intro
+      context_ref_type: ranking_top
+      scenarios: {candidate_profile_intro: soft_summary}
+      status: ok
+
+  - id: follow_up_top_k_profile
+    family: context_followup
+    question: "前三名分别有哪些项目？"
+    tiers: [policy, plan, runtime]
+    session:
+      last_ranking_candidate_ids:
+        - 892a3eb3375d129b89bee890fb912140cf8bfd3e61e41422d2fa17dbbed601ff
+        - f2f5cdab04687adfbbba5d99b6dfb844757eb733bdf66403e46197f755777b4c
+        - 3a17805b5db4b8dc2257e57e4d340e5752c58f6341817d3aebe5fbfb8d89930e
+    expected:
+      intent: candidate_profile_intro
+      context_ref_type: ranking_top_k
+      scenarios: {candidate_profile_intro: soft_summary}
+      status: ok
+
+  - id: context_pool_ranking
+    family: context_followup
+    question: "这些人谁更适合后端？"
+    tiers: [policy, plan, runtime]
+    session:
+      last_candidate_pool_ids:
+        - 19c61a6f333602a600754a5d922ba1905b034d7086f7a4159659c7b2e75c6111
+        - 3b671e1470c7b2a6eb8f7ee7e8bcdb78df75a6f6602ea4bc4639b1d6f867583f
+        - 7685814ec47a43441a6cdf6fc1ab5caf4a30f359e31bd953190acfc509133de2
+        - f2f5cdab04687adfbbba5d99b6dfb844757eb733bdf66403e46197f755777b4c
+        - 7b0fa86801cd5916cb902a63db4658e8c71fd27453f221c8dce7fb32ad4f358c
+        - 18cdff0474c23d08fd0ed963231d6ba0c7e51f7c98e9e1e9582df70b4efc7a47
+        - ed37d994c05c345b9f7d25ef830e978361c4c155ef1ed862a1fb8c981666ede4
+    expected:
+      intent: candidate_ranking
+      context_ref_type: candidate_pool
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+
+  - id: context_pool_fit_ranking_backend_development
+    family: context_followup
+    question: "这里面哪些人适合后端开发"
+    tiers: [policy, plan, runtime]
+    session:
+      last_candidate_pool_ids:
+        - 19c61a6f333602a600754a5d922ba1905b034d7086f7a4159659c7b2e75c6111
+        - 3b671e1470c7b2a6eb8f7ee7e8bcdb78df75a6f6602ea4bc4639b1d6f867583f
+        - 7685814ec47a43441a6cdf6fc1ab5caf4a30f359e31bd953190acfc509133de2
+        - f2f5cdab04687adfbbba5d99b6dfb844757eb733bdf66403e46197f755777b4c
+        - 7b0fa86801cd5916cb902a63db4658e8c71fd27453f221c8dce7fb32ad4f358c
+        - 18cdff0474c23d08fd0ed963231d6ba0c7e51f7c98e9e1e9582df70b4efc7a47
+        - ed37d994c05c345b9f7d25ef830e978361c4c155ef1ed862a1fb8c981666ede4
+    expected:
+      intent: candidate_ranking
+      context_ref_type: candidate_pool
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+    safety:
+      forbidden_filter_args:
+        concepts_all: ["后端开发"]
+
+  - id: context_pool_fit_ranking_data_analysis
+    family: context_followup
+    question: "这些候选人里谁更适合数据分析"
+    tiers: [policy, plan]
+    session:
+      last_candidate_pool_ids:
+        - 19c61a6f333602a600754a5d922ba1905b034d7086f7a4159659c7b2e75c6111
+        - 3b671e1470c7b2a6eb8f7ee7e8bcdb78df75a6f6602ea4bc4639b1d6f867583f
+        - 7685814ec47a43441a6cdf6fc1ab5caf4a30f359e31bd953190acfc509133de2
+    expected:
+      intent: candidate_ranking
+      context_ref_type: candidate_pool
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+    safety:
+      forbidden_filter_args:
+        concepts_all: ["数据分析"]
+
+  - id: context_pool_finance_job_ranking
+    family: context_followup
+    question: "这些人谁更适合金融岗位"
+    tiers: [policy, plan]
+    session:
+      last_candidate_pool_ids:
+        - 19c61a6f333602a600754a5d922ba1905b034d7086f7a4159659c7b2e75c6111
+        - 3b671e1470c7b2a6eb8f7ee7e8bcdb78df75a6f6602ea4bc4639b1d6f867583f
+        - 7685814ec47a43441a6cdf6fc1ab5caf4a30f359e31bd953190acfc509133de2
+    expected:
+      intent: candidate_ranking
+      context_ref_type: candidate_pool
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+    safety:
+      forbidden_filter_args:
+        domains_any: ["Finance"]
+
+  - id: context_pool_recommend_ai_search
+    family: context_followup
+    question: "这批人推荐谁做 AI Search"
+    tiers: [policy, plan]
+    session:
+      last_candidate_pool_ids:
+        - 19c61a6f333602a600754a5d922ba1905b034d7086f7a4159659c7b2e75c6111
+        - 3b671e1470c7b2a6eb8f7ee7e8bcdb78df75a6f6602ea4bc4639b1d6f867583f
+        - 7685814ec47a43441a6cdf6fc1ab5caf4a30f359e31bd953190acfc509133de2
+    expected:
+      intent: candidate_ranking
+      context_ref_type: candidate_pool
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+
+  - id: global_fit_ranking_financial_analysis
+    family: ranking
+    question: "哪些人适合金融分析岗位"
+    tiers: [policy, plan]
+    expected:
+      intent: candidate_ranking
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+    safety:
+      required_filter_args:
+        domains_any: ["Finance"]
+
+  - id: context_pair_advantages
+    family: context_followup
+    question: "这两个人分别有哪些优势？"
+    tiers: [policy, plan, runtime]
+    session:
+      last_comparison_candidate_ids:
+        - 892a3eb3375d129b89bee890fb912140cf8bfd3e61e41422d2fa17dbbed601ff
+        - f2f5cdab04687adfbbba5d99b6dfb844757eb733bdf66403e46197f755777b4c
+    expected:
+      intent: candidate_compare_pair
+      context_ref_type: comparison_pair
+      scenarios: {candidate_compare_pair: compare_rank}
+      status: ok
+
+  - id: multi_named_fit_ranking
+    family: ranking
+    question: "孟连星、孔德程、林妍谁更适合金融岗位？"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: candidate_ranking
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+
+  - id: missing_jd_context
+    family: context_followup
+    question: "刚才那个岗位下谁更适合？"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: candidate_ranking
+      context_ref_type: jd
+      scenarios: {candidate_ranking: compare_rank}
+      status: needs_clarification
+    safety:
+      forbid_tools: true
+
+  - id: missing_context
+    family: context_followup
+    question: "他有哪些金融经历？"
+    tiers: [policy, plan, runtime, llm]
+    expected:
+      intent: evidence_question
+      context_ref_type: last_candidate
+      scenarios: {evidence_question: fact_check}
+      status: needs_clarification
+    safety:
+      forbid_tools: true
+
+  - id: single_candidate_fit
+    family: fit_analysis
+    question: "孟连星适不适合金融分析岗位？"
+    tiers: [policy, plan, runtime, llm]
+    expected:
+      intent: compound
+      sub_intents: [candidate_profile_intro, evidence_question]
+      status: ok
+    safety:
+      forbidden_tools: [score_candidates_for_jd, rank_candidates]
+
+  - id: interview_generation
+    family: interview_generation
+    question: "根据孟连星的金融项目生成 5 个面试问题"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: interview_question_generation
+      scenarios: {interview_question_generation: fact_check}
+      status: ok
+    safety:
+      forbidden_tools: [filter_candidates, hybrid_search_candidates, rank_candidates]
+
+  - id: out_of_scope
+    family: out_of_scope
+    question: "今天天气怎么样？"
+    tiers: [policy, plan, runtime, llm]
+    expected:
+      intent: out_of_scope
+      scenarios: {out_of_scope: out_of_scope}
+      status: ok
+    safety:
+      forbid_tools: true
+
+  - id: out_of_scope_taxonomy_term
+    family: out_of_scope
+    question: "Python 是什么？"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: out_of_scope
+      scenarios: {out_of_scope: out_of_scope}
+      no_conditions: true
+      status: ok
+    safety:
+      forbid_tools: true
+
+domain_matrix:
+  domains: [运营, 金融, 能源]
+  templates:
+    - id: count
+      family: hard_filter
+      question: "有多少个{domain}领域候选人？"
+      expected_intent: candidate_count
+      expected_scenario: hard_filter
+    - id: recall
+      family: open_recall
+      question: "找找可能和{domain}相关的人"
+      expected_intent: candidate_filter
+      expected_scenario: open_recall

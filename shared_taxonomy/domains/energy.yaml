@@ -1,0 +1,35 @@
+domain_name: Energy
+aliases:
+  - 能源
+  - 能源领域
+  - 能源行业
+  - 新能源
+  - 电力
+  - 光伏
+  - 风电
+  - 储能
+  - energy
+concepts:
+  - 新能源项目
+  - 光伏项目
+  - 风电项目
+  - 储能系统
+  - 电力交易
+search_hints:
+  - 新能源
+  - 光伏
+  - 风电
+  - 储能
+  - 电力
+  - 碳排放
+  - 能耗
+local_concepts:
+  - name: 光伏项目
+    type: concept
+    aliases: [光伏, 光伏电站, 分布式光伏]
+  - name: 储能系统
+    type: concept
+    aliases: [储能, 储能电站, 电池储能]
+  - name: 电力交易
+    type: concept
+    aliases: [电力交易, 现货交易, 绿电交易]

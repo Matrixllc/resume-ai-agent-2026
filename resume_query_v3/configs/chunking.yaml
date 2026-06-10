@@ -1,0 +1,75 @@
+hard_drop_patterns:
+  - 联系方式
+  - 扫码
+  - 微信公众号
+  - 简历编号
+soft_downgrade_patterns:
+  - 热爱生活
+  - 性格开朗
+  - 沟通能力强
+  - 团队合作
+keep_keywords:
+  - 系统
+  - 平台
+  - 项目
+  - 推荐
+  - 搜索
+  - 风控
+  - 发票
+  - 解析
+  - 优化
+  - 算法
+mandatory_sections:
+  - work
+  - education
+  - project
+  - skill
+oversized_block_budget: 26
+dense_block_budget: 24
+standard_block_budget: 28
+
+project_cleanup:
+  tail_boundary_tokens:
+    - 求职意向
+    - 目标职位
+    - 手机
+    - 电话
+    - 邮箱
+    - 微信
+    - 个人信息
+    - 基本信息
+  metadata_action_keep_tokens:
+    - 使用
+    - 开发
+    - 负责
+    - 采用
+    - 优化
+    - 实现
+    - 创建
+    - 构建
+    - 分析
+    - 预测
+    - 提升
+    - 完成
+    - 参与
+    - 设计
+    - 引入
+    - 搭建
+    - 项目
+    - 系统
+    - 算法
+  metadata_org_regex: "\\b(University|College|School|Institute|Inc|Ltd|LLC)\\b"
+  metadata_location_tokens:
+    - 大学
+    - 学院
+    - 公司
+    - 集团
+    - 科技
+    - 美国
+    - 中国
+    - 上海
+    - 北京
+    - 深圳
+    - 广州
+    - 休斯顿
+  metadata_max_line_length: 40

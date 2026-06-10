@@ -1,0 +1,160 @@
+version: "v1"
+retry_limits:
+  router: 1
+  planner: 2
+  executor_tool_call: 2
+  aggregator_rewrite: 1
+
+plan_repair:
+  llm_enabled: false
+
+issue_actions:
+  defaults:
+    plan:
+      action: repair
+      category: plan
+      reason: plan_contract_error
+    execution:
+      action: fail
+      category: execution
+      reason: execution_contract_failed
+  codes:
+    context_missing:
+      action: clarify
+      reason: required_context_missing
+    comparison_cardinality:
+      action: clarify
+      reason: comparison_requires_two_candidates
+    dependency_contract:
+      action: repair
+      reason: structural_plan_error
+    tool_policy_contract:
+      action: repair
+      reason: tool_policy_contract_error
+    semantic_contract:
+      action: repair
+      reason: semantic_plan_mismatch
+    empty_retrieval:
+      action: repair
+      reason: candidate_retrieval_empty
+    empty_evidence:
+      action: fail
+      reason: empty_evidence_is_answerable
+    tool_failure:
+      action: fail
+      reason: tool_internal_error
+    reference_unresolved:
+      action: fail
+      reason: candidate_reference_unresolved
+    argument_binding:
+      action: fail
+      reason: argument_binding_error
+    execution_contract:
+      action: fail
+      reason: execution_contract_failed
+
+legacy_issue_classifiers:
+  - code: context_missing
+    category: context
+    contains_all: [missing required, context]
+    repairable: false
+  - code: comparison_cardinality
+    category: cardinality
+    contains_any: [requires exactly, build_comparison_pack returned]
+    repairable: false
+  - code: dependency_contract
+    category: structure
+    contains_any: [depends_on unknown, unknown or later output_key, argument references unknown]
+  - code: tool_policy_contract
+    category: policy
+    contains_any: [cannot use tool, unknown tool, unsupported arguments]
+  - code: empty_retrieval
+    category: retrieval
+    contains_any: [returned no candidates]
+  - code: empty_evidence
+    category: evidence
+    contains_any: [returned no evidence, has no evidenceref]
+    repairable: false
+  - code: argument_binding
+    category: binding
+    contains_any: [argument binding failed, missing key in argument reference, list index out of range]
+    repairable: false
+  - code: reference_unresolved
+    category: reference
+    contains_any: [candidate not found, resolve_candidate_reference failed]
+    repairable: false
+  - code: tool_failure
+    category: tool
+    contains_any: ['failed:']
+    repairable: false
+  - code: semantic_contract
+    category: semantic
+    prefixes: ['semantic:']
+
+clarification:
+  default:
+    message: "请补充完成当前查询所需的信息。"
+    include_candidate_options: false
+  codes:
+    comparison_cardinality:
+      message: "我需要先确认要比较的两位候选人。请明确给出两个人的姓名或简历 ID。"
+      include_candidate_options: true
+    context_missing:
+      message: "当前问题引用了上一轮结果，但对应上下文不存在。请重新说明要查询的候选人或范围。"
+      include_candidate_options: true
+      context_messages:
+        ranking_top: "当前没有可用的上一轮排名结果。请先执行一次排序，或明确指定候选人。"
+        ranking_top_k: "当前没有可用的上一轮排名结果。请先执行一次排序，或明确指定候选人范围。"
+        candidate_pool: "当前没有可用的上一轮候选人集合。请重新说明筛选范围。"
+        last_candidate: "当前没有可用的上一位候选人。请明确指定候选人。"
+        comparison_pair: "当前没有可用的上一轮两人对比对象。请明确指定两位候选人。"
+        jd: "当前没有可用的上一轮岗位/JD 条件。请明确说明岗位或评价标准。"
+
+answer_repair:
+  rule_repair_categories: [count, name, ranking, evidence_id, required_claim, layout, privacy, evidence_coverage]
+
+compare_pair:
+  exact_candidate_count: 2
+  reject_more_than_two: true
+  convert_more_than_two_to_ranking: true
+
+ranking:
+  requires_jd_criteria: true
+  requires_scores: true
+  requires_ranked_order: true
+  default_jd_tool: "load_default_jd_criteria"
+
+answer:
+  facts_must_come_from_tools: true
+  count_must_equal_tool_result: true
+  names_must_exist_in_tool_result: true
+  ranking_must_equal_rank_tool_output: true
+  contact_hidden_by_default: true
+  sensitive_attributes_forbidden: true
+  count_subject_terms: [候选人, 共有, 总数, 位, 个]
+  ranking_segment_markers: [排序结果, 排名, 排序, 从高到低, 推荐顺序]
+
+privacy:
+  contact_fields:
+    - phone
+    - email
+    - wechat
+  hide_contact_by_default: true
+  sensitive_attributes:
+    - age
+    - gender
+    - ethnicity
+    - marital_status
+    - fertility_status
+    - political_identity
+    - photo
+  contact_aliases:
+    wechat: [微信, wechat]
+  sensitive_attribute_aliases:
+    age: [年龄, 岁]
+    gender: [性别, 男, 女]
+    ethnicity: [民族]
+    marital_status: [婚姻, 已婚, 未婚]
+    fertility_status: [婚育, 生育]
+    political_identity: [政治面貌, 党员, 群众]
+    photo: [照片, 头像]

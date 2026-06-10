@@ -1,0 +1,162 @@
+version: "v1"
+intents:
+  candidate_count:
+    description: "Count all candidates or candidates matching filters."
+    semantic_needs:
+      - filter
+      - count
+    scenario_optional_needs:
+      open_recall:
+        - semantic_recall
+    allow_compound: true
+    requires_jd_criteria: false
+    requires_evidence: false
+    examples:
+      - "有多少个候选人？"
+      - "有多少个金融领域候选人？"
+
+  candidate_list:
+    description: "List candidates, optionally after applying filters."
+    semantic_needs:
+      - filter
+      - list
+    scenario_optional_needs:
+      open_recall:
+        - semantic_recall
+    allow_compound: true
+    requires_jd_criteria: false
+    requires_evidence: false
+    examples:
+      - "都有谁？"
+      - "金融领域候选人都有谁？"
+
+  candidate_filter:
+    description: "Find candidates by domain, skills, project tags, keywords, or job intent."
+    semantic_needs:
+      - filter
+    scenario_optional_needs:
+      open_recall:
+        - semantic_recall
+    allow_compound: true
+    requires_jd_criteria: false
+    requires_evidence: false
+    scenario_defaults:
+      hard_filter:
+        requires_evidence: false
+      open_recall:
+        requires_evidence: false
+      evidence_lookup:
+        requires_evidence: true
+    examples:
+      - "找出有推荐系统经验的候选人。"
+      - "谁有 Python 和金融项目经验？"
+
+  candidate_profile_intro:
+    description: "Introduce one candidate with factual personal/profile information."
+    semantic_needs:
+      - resolve_candidate
+      - profile
+    allow_compound: true
+    requires_jd_criteria: false
+    requires_evidence: true
+    hide_contact_by_default: true
+    examples:
+      - "介绍一下孟连星。"
+      - "某人的个人信息是什么？"
+
+  candidate_compare_pair:
+    description: "Compare exactly two candidates with evidence."
+    semantic_needs:
+      - resolve_candidates
+      - compare
+      - evidence
+    allow_compound: true
+    requires_jd_criteria: false
+    requires_evidence: true
+    examples:
+      - "孟连星和孔德程谁更适合？"
+      - "A 和 B 谁更强？"
+
+  candidate_ranking:
+    description: "Rank two or more candidates using JD scoring criteria."
+    semantic_needs:
+      - filter
+      - jd_criteria
+      - score
+      - rank
+    allow_compound: true
+    requires_jd_criteria: true
+    fallback_when_no_jd: "load_default_jd_criteria"
+    requires_evidence: true
+    examples:
+      - "谁更好，做个排序。"
+      - "按这个岗位推荐前三名。"
+
+  jd_scoring:
+    description: "Score candidates against a user JD or the default JD."
+    semantic_needs:
+      - jd_criteria
+      - score
+      - rank
+    allow_compound: true
+    requires_jd_criteria: true
+    fallback_when_no_jd: "load_default_jd_criteria"
+    requires_evidence: true
+    examples:
+      - "基于这个 JD 给候选人打分。"
+
+  evidence_question:
+    description: "Answer where a candidate's experience is evidenced."
+    semantic_needs:
+      - resolve_candidate
+      - evidence
+    allow_compound: true
+    requires_jd_criteria: false
+    requires_evidence: true
+    examples:
+      - "孟连星的金融经验体现在哪里？"
+
+  interview_question_generation:
+    description: "Future extension: generate interview questions or follow-up prompts from candidate profile and evidence."
+    semantic_needs:
+      - resolve_candidate
+      - profile
+      - evidence
+      - generate_questions
+    allow_compound: true
+    requires_jd_criteria: false
+    requires_evidence: true
+    examples:
+      - "根据孟连星的金融项目生成 5 个面试问题。"
+      - "围绕蒋安然的能源项目提几个追问。"
+      - "根据孔德程的推荐系统经验，出一些技术问题。"
+      - "针对孟连星信息，进行提问。"
+
+  follow_up:
+    description: "Resolve references from recent session context, then route to a concrete intent."
+    semantic_needs:
+      - resolve_context
+    allow_compound: false
+    requires_jd_criteria: false
+    requires_evidence: false
+    examples:
+      - "刚才那个人有哪些风险？"
+
+  compound:
+    description: "A question containing multiple sub-intents."
+    semantic_needs: []
+    allow_compound: true
+    requires_jd_criteria: false
+    requires_evidence: false
+    examples:
+      - "有多少个候选人，都有谁，谁更好，做个排序。"
+
+  out_of_scope:
+    description: "Questions outside resume, candidate search, evidence checking, JD matching, and recruiting decisions."
+    semantic_needs: []
+    allow_compound: false
+    requires_jd_criteria: false
+    requires_evidence: false
+    examples:
+      - "今天天气怎么样？"
+      - "帮我写一首诗。"
