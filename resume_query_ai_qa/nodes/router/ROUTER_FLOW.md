@@ -1,11 +1,10 @@
 # Router Flow
 
-Router 的职责只有一个：把用户问题收敛成 `RouterOutput`。
+这份文档只讲代码阅读线。
 
-它不查 SQLite/Chroma，不生成工具计划，不回答用户问题。工具计划从后续
-`condition_normalizer -> execution_policy -> planner/plan_compiler` 开始。
+更高层总结看 `README.md`；YAML 字段归属看 `YAML_USAGE.md`。
 
-## 代码阅读顺序
+## 阅读顺序
 
 ```text
 1. ROUTER_FLOW.md
@@ -29,59 +28,78 @@ preprocess_router_question
 -> finalize_router_output
 ```
 
-| 阶段 | 文件 | 输入 | 输出 | 读 YAML | 改哪些字段 |
-|---|---|---|---|---|---|
-| preprocess | `conditions.py` | raw question | cleaned question | `router_rules.preprocess` | 不改 RouterOutput |
-| draft | `llm.py` 或 `rules.py` | cleaned question + config | RouterOutput draft | `intents`、`scenarios`、`router_rules`、`condition_rules`、taxonomy | `intent`、`sub_intents`、`conditions`、`scenario_decisions`、`context_policy` 等草稿字段 |
-| guards | `guard.py` | draft | guarded draft | `router_rules` | 可覆盖 `intent`、`sub_intents`、`context_policy`、`requires_*`、`risk_flags` |
-| condition completion | `conditions.py` | guarded draft | completed draft | `condition_rules`、taxonomy、candidate mentions | 补 `conditions`，保持 `normalized_conditions=[]` |
-| finalizer | `finalizer.py` | completed draft | final RouterOutput | `intents`、`scenarios`、`tool_policy`、`router_rules.risk_flags` | 权威重算派生字段 |
+| 阶段 | 函数 | 输入 | 输出 | 为什么这么做 |
+|---|---|---|---|---|
+| 1 | `preprocess_router_question` | raw question | cleaned question | 先统一标点、去掉开头 filler terms，让后续规则匹配更稳定 |
+| 2 | `build_router_draft` | cleaned question + config | RouterOutput draft | 先用 LLM 或 rule fallback 给出完整草稿 |
+| 3 | `apply_router_guards` | draft | guarded draft | 用硬规则纠偏安全、排序、对比、证据、复合、上下文 |
+| 4 | `complete_router_conditions` | guarded draft + question | completed draft | 防止 draft 漏掉 domain/skill/major/scope/candidate_name |
+| 5 | `finalize_router_output` | completed draft | final RouterOutput | 统一收口 shape、YAML contract、derived flags |
 
-## 每个 py 文件职责
+## node.py
 
-| 文件 | 职责 | 不负责 |
-|---|---|---|
-| `node.py` | 总流程编排，选择 LLM/rule draft | 业务规则、工具计划 |
-| `llm.py` | LLM 生成完整 RouterOutput draft，修 payload，校验 schema/scenario | guard、condition completion、finalizer |
-| `rules.py` | deterministic rule fallback draft | LLM、guard、权威字段收口 |
-| `signals.py` | 文本信号检测，产 `RouterSignals` | 最终 intent 判断 |
-| `guard.py` | 硬规则纠偏 draft | 生成原始 draft、最终收口 |
-| `conditions.py` | query 清理、补 raw `QueryCondition` | `NormalizedCondition`、工具参数 |
-| `finalizer.py` | RouterOutput 权威字段重算 | 重新理解自然语言 |
-| `rule_types.py` | rule fallback 内部 dataclass | 业务判断 |
-
-## LLM 路径
-
-`route_question_llm()` 会进入同一条 pipeline，只是在 draft 阶段优先调用
-`build_llm_router_draft()`。
-
-LLM 应输出完整 `RouterOutput` draft：
+`node.py` 只串流程，不写业务规则。
 
 ```text
-intent
-is_compound
-sub_intent_candidates
-sub_intent_evidence
-scenario_decisions
-conditions
-normalized_conditions
-context_policy
-requires_jd
-requires_evidence
-allowed_tool_names
-risk_flags
+route_question
+route_question_llm
+run_router_pipeline
+build_router_draft
+safe_finalize_router_output
 ```
 
-但这些字段不是全部权威值：
+核心主链：
 
-- `normalized_conditions` 在 router 阶段保持空，由下一个 node 生成。
-- `allowed_tool_names` 由 finalizer 根据 `tool_policy.yaml` 重算。
-- `requires_jd` / `requires_evidence` 由 finalizer 根据 `intents.yaml` 和证据词重算。
-- 合法的 LLM `scenario_decisions` 会保留；缺失或非法的会被规则 fallback 补齐。
+```python
+cleaned_question = preprocess_router_question(question, config)
+draft = build_router_draft(cleaned_question, config, use_llm=use_llm)
+guarded = apply_router_guards(draft, cleaned_question, config)
+completed = complete_router_conditions(guarded, cleaned_question, config)
+return safe_finalize_router_output(completed, cleaned_question, config)
+```
 
-## Rule Fallback 路径
+含义：
 
-`rules.py` 的阅读线是：
+- `route_question()`：纯规则入口。
+- `route_question_llm()`：LLM 优先入口，失败时回退规则。
+- `build_router_draft()`：只决定草稿来自 LLM 还是 rules。
+- `safe_finalize_router_output()`：finalizer 异常时安全降级为 `out_of_scope`。
+
+## llm.py
+
+LLM 路径负责生成和校验 RouterOutput draft。
+
+```text
+build_llm_router_draft
+run_llm_router
+coerce_router_payload
+normalize_router_payload_shape
+validate_router_payload_schema
+validate_scenario_contract
+build_llm_fallback_flag
+extract_valid_intent_tokens
+```
+
+流程：
+
+```text
+调用 LLM
+-> 转成 dict
+-> 修 payload 形状
+-> 校验 RouterOutput schema
+-> 校验 intent/scenario 合法性
+-> 失败则 rule fallback
+```
+
+为什么这么做：
+
+- LLM 可以给完整语义草稿。
+- 但 LLM 输出不稳定，所以必须 schema 校验。
+- `normalized_conditions` 和 `allowed_tool_names` 不信任 LLM，后续阶段重算。
+
+## rules.py + signals.py
+
+Rule fallback 是 deterministic draft 路径。
 
 ```text
 build_rule_router_draft
@@ -92,43 +110,67 @@ build_rule_router_draft
 -> build_rule_router_output
 ```
 
-`signals.py` 是侦察层，只判断文本里有什么信号：
+`signals.py` 是侦察层，只回答“文本里有什么信号”：
 
 ```text
 pair_compare
 candidate_reference
 context_policy
+discovery
+project_listing
 evidence_locator
+single_candidate_fit
 interview_question
 sensitive_interview
 ```
 
-`rules.py` 是决策层，把信号变成 draft sub-intents：
+`rules.py` 是决策层，把信号变成 draft intent：
 
 ```text
 count terms -> candidate_count
-list/profile terms -> candidate_list 或 candidate_profile_intro
+list terms -> candidate_list
+profile terms -> candidate_profile_intro
 evidence terms -> evidence_question
-compare/ranking terms -> candidate_compare_pair 或 candidate_ranking
+pair compare -> candidate_compare_pair
+ranking terms -> candidate_ranking
 condition fallback -> candidate_filter
 ```
 
-## Guard 路径
+为什么这么做：
 
-`guard.py` 不从零生成路由，它只纠偏 draft：
+- LLM 不可用时仍能工作。
+- 规则 draft 可解释，适合 benchmark 和回归测试。
+- signals 和 rules 分开，避免“检测文本”和“决定 intent”混在一起。
+
+## guard.py
+
+Guard 是硬规则纠偏层，不从零生成 RouterOutput。
 
 ```text
-apply_safety_guard
-apply_intent_override_guards
-  -> apply_ranking_guard
-  -> apply_pair_compare_guard
-  -> apply_evidence_guard
-apply_compound_guard
-apply_context_guard
-apply_intent_convergence_guard
+apply_router_guards
+-> apply_safety_guard
+-> apply_intent_override_guards
+   -> apply_ranking_guard
+   -> apply_pair_compare_guard
+   -> apply_evidence_guard
+-> apply_compound_guard
+-> apply_context_guard
+-> apply_intent_convergence_guard
 ```
 
-`compound_rules` 到 sub-intents 的映射在 `detect_compound_sub_intents()`：
+每类 guard 的意义：
+
+| guard | 作用 |
+|---|---|
+| safety | 敏感面试问题强制 `out_of_scope` |
+| ranking | 明显多人排序强制 `candidate_ranking` |
+| pair compare | 明确两人对比强制 `candidate_compare_pair` |
+| evidence | 命中“依据/证据/为什么”时补 `evidence_question` |
+| compound | 根据 `compound_rules` 补 count/list/ranking/evidence 子任务 |
+| context | 解析“第一名/这些人/这两个人/刚才那个人” |
+| convergence | 把 `follow_up` 或单人适配问题收敛成具体 intent |
+
+`compound_rules` 映射：
 
 ```text
 count_terms -> candidate_count
@@ -137,46 +179,73 @@ ranking_terms -> candidate_ranking
 evidence_terms -> evidence_question
 ```
 
-## Finalizer 权威字段
+为什么这么做：
 
-`finalizer.py` 按字段顺序收口：
+- draft 可能来自 LLM，不能完全信任。
+- 某些场景错了会让后续工具执行偏掉，必须用确定性规则兜住。
+- guard 只纠偏明显硬边界，最终权威字段仍交给 finalizer。
+
+## conditions.py
+
+conditions 负责两个阶段：
 
 ```text
-finalize_intent_and_sub_intents
-finalize_sub_intent_evidence
-finalize_scenario_decisions
-finalize_conditions
-finalize_requires_jd
-finalize_requires_evidence
-finalize_allowed_tool_names
-finalize_risk_flags
+preprocess_router_question
+complete_router_conditions
+normalize_router_punctuation
 ```
 
-它的原则：
+`preprocess_router_question()`：
 
-- 不重新理解自然语言。
-- 合法 draft scenario 保留。
-- 缺失/非法 scenario 用 `scenarios.yaml.resolution_rules` 补。
-- `requires_jd` / `requires_evidence` / `allowed_tool_names` / `risk_flags` 以 finalizer 为准。
+```text
+读取 router_rules.preprocess
+统一标点
+去掉开头 filler terms
+压缩空格
+```
 
-## RouterOutput 字段来源表
+`complete_router_conditions()`：
 
-| 字段 | Draft | Guard | Condition Completion | Finalizer |
-|---|---|---|---|---|
-| `intent` | LLM/rule 生成 | 可覆盖 | 不改 | 权威收口 |
-| `is_compound` | LLM/rule 生成 | 可覆盖 | 不改 | 权威重算 |
-| `sub_intent_candidates` | LLM/rule 生成 | 可补/覆盖 | 不改 | 权威去重 |
-| `sub_intent_evidence` | LLM/rule 生成 | 通常不改 | 不改 | 缺失补齐 |
-| `scenario_decisions` | LLM/rule 生成 | 不直接算 | 不改 | 校验合法，缺失/非法用 rule fallback |
-| `conditions` | LLM/rule 生成 | 可间接影响 | 补齐 | 去重 |
-| `normalized_conditions` | 空 | 不改 | 保持空 | 保持空 |
-| `context_policy` | LLM/rule 生成 | 可覆盖 | 不改 | 保留 |
-| `requires_jd` | 初稿 | 可提示 | 不改 | 权威重算 |
-| `requires_evidence` | 初稿 | 可提示 | 不改 | 权威重算 |
-| `allowed_tool_names` | 初稿不可信 | 不改 | 不改 | 权威重算 |
-| `risk_flags` | 初稿 | 追加 | 追加 | 白名单清理 |
+```text
+保留 draft conditions
+重新 extract_conditions(question)
+候选人名字走 candidate_reference_conditions
+合并去重
+保持 normalized_conditions=[]
+```
 
-## 示例完整走读
+为什么这么做：
+
+- LLM/rule draft 都可能漏条件。
+- raw `QueryCondition` 必须尽量补齐。
+- `NormalizedCondition` 属于后续 `condition_normalizer`，router 不抢职责。
+
+## finalizer.py
+
+Finalizer 是 RouterOutput 权威收口层。
+
+```text
+finalize_router_output
+-> finalize_router_shape
+-> finalize_router_contract
+-> finalize_router_derived_flags
+```
+
+三段含义：
+
+| 分组 | 负责字段 | 意义 |
+|---|---|---|
+| Shape | `intent`、`is_compound`、`sub_intents`、`evidence`、`conditions` | 保证 RouterOutput 内部结构自洽 |
+| Contract | `scenario_decisions`、`allowed_tool_names` | 保证 scenario/tool 符合 YAML 合同 |
+| Derived Flags | `requires_jd`、`requires_evidence`、`risk_flags` | 统一重算派生字段 |
+
+为什么这么做：
+
+- LLM/rule/guard 都可能改字段。
+- finalizer 防止字段之间互相矛盾。
+- 后续节点只应该信 finalizer 后的 RouterOutput。
+
+## 示例走读
 
 问题：
 
@@ -184,51 +253,56 @@ finalize_risk_flags
 金融候选人有几个，谁最强，依据是什么？
 ```
 
-1. `preprocess_router_question`
-   - 标点统一，口头前缀清理。
+1. preprocess：
 
-2. draft
-   - `金融` 被抽成 `condition: domain=金融`。
-   - `几个` 触发 `candidate_count`。
-   - `谁最强` 触发 `candidate_ranking`。
-   - `依据` 触发 `evidence_question`。
+```text
+统一标点，清理 filler terms。
+```
 
-3. guard
-   - `compound_rules` 确保 count/ranking/evidence 三个子任务都在。
+2. draft：
 
-4. condition completion
-   - 补齐漏掉的 domain/skill/candidate_name/scope。
+```text
+金融 -> condition domain=金融
+几个 -> candidate_count
+谁最强 -> candidate_ranking
+依据 -> evidence_question
+```
 
-5. finalizer
-   - `intent=compound`。
-   - `sub_intent_candidates=[candidate_count, evidence_question, candidate_ranking]`。
-   - `candidate_count -> hard_filter`。
-   - `candidate_ranking -> compare_rank`。
-   - `evidence_question -> evidence_lookup`。
-   - `requires_jd=true`。
-   - `requires_evidence=true`。
+3. guard：
 
-最终 RouterOutput 形状：
+```text
+compound_rules 确保 count/ranking/evidence 三个子任务都在。
+```
+
+4. condition completion：
+
+```text
+补齐/去重 conditions，保持 normalized_conditions=[]。
+```
+
+5. finalizer：
 
 ```json
 {
   "intent": "compound",
+  "is_compound": true,
   "sub_intent_candidates": [
     "candidate_count",
     "evidence_question",
     "candidate_ranking"
   ],
+  "scenario_decisions": {
+    "candidate_count": "hard_filter",
+    "evidence_question": "evidence_lookup",
+    "candidate_ranking": "compare_rank"
+  },
   "conditions": [
     {"type": "domain", "raw_value": "金融"}
   ],
   "requires_jd": true,
-  "requires_evidence": true
+  "requires_evidence": true,
+  "allowed_tool_names": []
 }
 ```
 
-## 当前保留的复杂点
-
-- `semantic_recall` 定义在 `intents.yaml.scenario_optional_needs`，但主要给 planner/compiler 用，不是 RouterOutput 字段。
-- `context_ref_rules` 是当前上下文配置；`context_references` 是旧兼容配置。
-- `compound_rules` 是 YAML 词表，词表到 sub-intent 的映射仍在 `guard.py`。
-- `requires_jd` / `requires_evidence` 在 draft 阶段也可能出现，但 finalizer 才是权威值。
+`allowed_tool_names=[]` 是因为 compound 会由后续 compiler 按每个 sub-intent 分别选工具。

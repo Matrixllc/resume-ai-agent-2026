@@ -6,6 +6,12 @@ evidence, compound tasks, and configured intent convergence.
 
 This module does not build the original draft and does not finalize authoritative
 fields; finalizer.py still recomputes the final RouterOutput contract.
+
+中文阅读提示：
+这个文件是“硬规则纠偏层”。LLM/rule 已经给了草稿，但某些场景必须用规则覆盖：
+敏感问题、上下文引用、两人对比、多人排序、证据追问、复合问题。这里可以改
+intent/sub_intents/context_policy/requires_* 提示，但最终权威字段仍由
+finalizer.py 收口。
 """
 
 from __future__ import annotations
@@ -29,6 +35,10 @@ def apply_router_guards(output: RouterOutput, question: str, config: ResumeQACon
     Updates RouterOutput: intent, is_compound, sub_intent_candidates,
     context_policy, requires_jd/requires_evidence hints, risk_flags.
     Does not: generate normalized_conditions or final allowed_tool_names.
+
+    中文：
+    guard 总入口。按顺序应用 safety -> intent override -> compound ->
+    context -> convergence。它只纠偏草稿，不从零生成 RouterOutput。
     """
     guarded = apply_safety_guard(output, question, config)
     guarded = apply_intent_override_guards(guarded, question, config)
@@ -38,7 +48,11 @@ def apply_router_guards(output: RouterOutput, question: str, config: ResumeQACon
 
 
 def apply_safety_guard(output: RouterOutput, question: str, config: ResumeQAConfig) -> RouterOutput:
-    """Sensitive interview terms -> out_of_scope draft with audit flags."""
+    """Sensitive interview terms -> out_of_scope draft with audit flags.
+
+    中文：
+    安全边界。面试题里出现敏感属性时，直接改成 out_of_scope 并记录 risk_flag。
+    """
     try:
         if looks_like_sensitive_interview(question, output, config):
             return out_of_scope_with_guard_flags(output, question, config, "sensitive_interview_guard_applied")
@@ -48,7 +62,11 @@ def apply_safety_guard(output: RouterOutput, question: str, config: ResumeQAConf
 
 
 def apply_context_guard(output: RouterOutput, question: str, config: ResumeQAConfig) -> RouterOutput:
-    """Context terms like '这些人/第一名/这两个人' -> context_policy."""
+    """Context terms like '这些人/第一名/这两个人' -> context_policy.
+
+    中文：
+    处理上下文指代，把“这些人/第一名/这两个人”等解析成 context_policy。
+    """
     try:
         policy = context_policy_from_config(question, config)
         if not policy.uses_context:
@@ -67,7 +85,11 @@ def apply_context_guard(output: RouterOutput, question: str, config: ResumeQACon
 
 
 def apply_intent_override_guards(output: RouterOutput, question: str, config: ResumeQAConfig) -> RouterOutput:
-    """Apply pair/ranking/evidence intent overrides that are safer than draft intent."""
+    """Apply pair/ranking/evidence intent overrides that are safer than draft intent.
+
+    中文：
+    依次尝试 ranking/pair/evidence 纠偏。只要某个 guard 生效，就返回纠偏后的草稿。
+    """
     for guard in (apply_ranking_guard, apply_pair_compare_guard, apply_evidence_guard):
         guarded = guard(output, question, config)
         if guarded is not output:
@@ -76,7 +98,11 @@ def apply_intent_override_guards(output: RouterOutput, question: str, config: Re
 
 
 def apply_pair_compare_guard(output: RouterOutput, question: str, config: ResumeQAConfig) -> RouterOutput:
-    """Pair compare terms with two candidates -> candidate_compare_pair."""
+    """Pair compare terms with two candidates -> candidate_compare_pair.
+
+    中文：
+    两个候选人 + 对比词，强制为 candidate_compare_pair。
+    """
     if output.context_policy.uses_context and output.context_policy.context_ref_type == "comparison_pair" and matches_comparison_pair_followup(question, config):
         return copy_with_guard_flags(
             output,
@@ -101,7 +127,11 @@ def apply_pair_compare_guard(output: RouterOutput, question: str, config: Resume
 
 
 def apply_ranking_guard(output: RouterOutput, question: str, config: ResumeQAConfig) -> RouterOutput:
-    """Configured candidate-set ranking signals -> candidate_ranking."""
+    """Configured candidate-set ranking signals -> candidate_ranking.
+
+    中文：
+    多候选人集合 + 排序/推荐/最强信号，强制为 candidate_ranking。
+    """
     if looks_like_configured_candidate_set_ranking(output, question, config):
         return copy_with_guard_flags(
             output,
@@ -117,7 +147,11 @@ def apply_ranking_guard(output: RouterOutput, question: str, config: ResumeQACon
 
 
 def apply_evidence_guard(output: RouterOutput, question: str, config: ResumeQAConfig) -> RouterOutput:
-    """Evidence trigger terms add evidence_question to the draft sub-intents."""
+    """Evidence trigger terms add evidence_question to the draft sub-intents.
+
+    中文：
+    命中“依据/证据/为什么”等词时，确保 sub_intents 里有 evidence_question。
+    """
     if contains_config_terms(question, config, "compound_rules", "evidence_terms"):
         sub_intents = list(output.sub_intent_candidates or ([output.intent] if output.intent != "compound" else []))
         if "evidence_question" not in sub_intents:
@@ -134,7 +168,12 @@ def apply_evidence_guard(output: RouterOutput, question: str, config: ResumeQACo
 
 
 def apply_compound_guard(output: RouterOutput, question: str, config: ResumeQAConfig) -> RouterOutput:
-    """Compound trigger terms -> candidate_count/list/ranking/evidence sub-intents."""
+    """Compound trigger terms -> candidate_count/list/ranking/evidence sub-intents.
+
+    中文：
+    复合问题纠偏。比如“有几个，谁最强，依据是什么”会补出
+    candidate_count / candidate_ranking / evidence_question。
+    """
     detected = detect_compound_sub_intents(question, config)
     if len(detected) <= 1:
         return output
@@ -153,7 +192,11 @@ def apply_compound_guard(output: RouterOutput, question: str, config: ResumeQACo
 
 
 def apply_intent_convergence_guard(output: RouterOutput, question: str, config: ResumeQAConfig) -> RouterOutput:
-    """Configured follow-up/single-fit rules converge vague draft intents."""
+    """Configured follow-up/single-fit rules converge vague draft intents.
+
+    中文：
+    把 follow_up 或单人适配这类模糊草稿，按 YAML 配置收敛到具体 intent/sub_intents。
+    """
     if output.intent == "candidate_ranking" and looks_like_configured_candidate_set_ranking(output, question, config):
         return output
     convergence = dict(config.router_rules.get("intent_convergence", {}) or {})
@@ -197,7 +240,15 @@ def apply_intent_convergence_guard(output: RouterOutput, question: str, config: 
 
 
 def detect_compound_sub_intents(question: str, config: ResumeQAConfig) -> list[str]:
-    """Map compound_rules terms to concrete sub-intents."""
+    """Map compound_rules terms to concrete sub-intents.
+
+    中文：
+    compound_rules 的词表到实际 sub_intent 的映射：
+    count_terms -> candidate_count；
+    list_terms -> candidate_list；
+    ranking_terms -> candidate_ranking；
+    evidence_terms -> evidence_question。
+    """
     items: list[str] = []
     if contains_config_terms(question, config, "compound_rules", "count_terms"):
         items.append("candidate_count")
@@ -216,12 +267,20 @@ def context_policy_from_config(
     *,
     excluded_ref_types: set[str] | None = None,
 ) -> ContextPolicy:
-    """Resolve configured context reference terms into a ContextPolicy."""
+    """Resolve configured context reference terms into a ContextPolicy.
+
+    中文：
+    按 router_rules.yaml 的上下文指代配置解析 context_policy。
+    """
     return resolve_context_policy(question, config.router_rules, excluded_ref_types=excluded_ref_types)
 
 
 def current_turn_output_ref_types(output: RouterOutput, config: ResumeQAConfig) -> set[str]:
-    """Return context ref types generated by the current draft intent."""
+    """Return context ref types generated by the current draft intent.
+
+    中文：
+    判断当前 draft intent 会产生哪些“可被本轮引用”的结果类型，比如第一名。
+    """
     intents = set(output.sub_intent_candidates or [output.intent])
     resolution = dict(config.router_rules.get("context_resolution", {}) or {})
     return {
@@ -234,7 +293,11 @@ def current_turn_output_ref_types(output: RouterOutput, config: ResumeQAConfig) 
 
 
 def looks_like_configured_candidate_set_ranking(output: RouterOutput, question: str, config: ResumeQAConfig) -> bool:
-    """Return true when configured signals force candidate_ranking."""
+    """Return true when configured signals force candidate_ranking.
+
+    中文：
+    根据 YAML 排序规则判断是否必须改成 candidate_ranking。
+    """
     ranking_rules = dict(config.router_rules.get("ranking_intent_rules", {}) or {})
     min_count = int(ranking_rules.get("multi_candidate_min_count", 3) or 3)
     explicit_count = rules.explicit_candidate_match_count(question)
@@ -245,12 +308,20 @@ def looks_like_configured_candidate_set_ranking(output: RouterOutput, question: 
 
 
 def matches_comparison_pair_followup(question: str, config: ResumeQAConfig) -> bool:
-    """Return true when a comparison_pair context follow-up remains comparative."""
+    """Return true when a comparison_pair context follow-up remains comparative.
+
+    中文：
+    判断“这两个人谁更适合”这种上一轮 comparison_pair 的追问是否仍是对比。
+    """
     return rules.contains_any(question, rules.terms(config, "pair_compare", "compare_terms"))
 
 
 def matches_signal_groups(question: str, config: ResumeQAConfig, groups: Any) -> bool:
-    """Return true when question matches any configured signal group."""
+    """Return true when question matches any configured signal group.
+
+    中文：
+    判断问题是否命中 YAML 中某组 signals 词表。
+    """
     return any(
         rules.contains_any(question, rules.terms(config, "signals", str(group)))
         for group in list(groups or [])
@@ -258,17 +329,29 @@ def matches_signal_groups(question: str, config: ResumeQAConfig, groups: Any) ->
 
 
 def has_two_candidates(question: str) -> bool:
-    """Return true when text explicitly references at least two candidates."""
+    """Return true when text explicitly references at least two candidates.
+
+    中文：
+    判断文本是否明确提到至少两个候选人。
+    """
     return rules.explicit_candidate_match_count(question) >= 2 or len(rules.candidate_mentions(question)) >= 2
 
 
 def contains_config_terms(question: str, config: ResumeQAConfig, *path: str) -> bool:
-    """Return true when question contains any terms from router_rules.yaml path."""
+    """Return true when question contains any terms from router_rules.yaml path.
+
+    中文：
+    检查问题是否命中 router_rules.yaml 某个路径下的词表。
+    """
     return rules.contains_any(question, rules.terms(config, *path))
 
 
 def looks_like_sensitive_interview(question: str, output: RouterOutput, config: ResumeQAConfig) -> bool:
-    """Return true when an interview request includes sensitive attributes."""
+    """Return true when an interview request includes sensitive attributes.
+
+    中文：
+    判断是否是面试题生成请求，并且包含敏感属性词。
+    """
     looks_like_interview = (
         output.intent == "interview_question_generation"
         or rules.contains_any(question, rules.terms(config, "intent_rules", "interview_question_generation", "trigger_any"))
@@ -283,7 +366,11 @@ def looks_like_sensitive_interview(question: str, output: RouterOutput, config: 
 
 
 def should_force_out_of_scope(question: str, output: RouterOutput, config: ResumeQAConfig) -> bool:
-    """Return true when general-knowledge wording should force out_of_scope."""
+    """Return true when general-knowledge wording should force out_of_scope.
+
+    中文：
+    判断一般知识类问题是否应该强制出简历问答范围。
+    """
     if output.context_policy.uses_context or rules.looks_like_candidate_reference(question) or rules.looks_like_pair_compare(question, config):
         return False
     conditions = list(output.conditions or [])
@@ -304,11 +391,19 @@ def should_force_out_of_scope(question: str, output: RouterOutput, config: Resum
 
 
 def copy_with_guard_flags(output: RouterOutput, *flags: str, **updates: Any) -> RouterOutput:
-    """Copy RouterOutput while appending deduped guard audit flags."""
+    """Copy RouterOutput while appending deduped guard audit flags.
+
+    中文：
+    复制 RouterOutput 并追加去重后的 guard 审计标记。
+    """
     return output.model_copy(update={**updates, "risk_flags": rules.dedupe_rule_intents([*output.risk_flags, *flags])})
 
 
 def out_of_scope_with_guard_flags(output: RouterOutput, question: str, config: ResumeQAConfig, flag: str) -> RouterOutput:
-    """Build out_of_scope draft and preserve guard audit flags."""
+    """Build out_of_scope draft and preserve guard audit flags.
+
+    中文：
+    构造 out_of_scope，同时保留“是哪个 guard 触发的”审计信息。
+    """
     guarded = rules.build_out_of_scope_draft(question, config)
     return guarded.model_copy(update={"risk_flags": rules.dedupe_rule_intents([*output.risk_flags, flag, "llm_router_contract_overridden_by_rule_guard"])})

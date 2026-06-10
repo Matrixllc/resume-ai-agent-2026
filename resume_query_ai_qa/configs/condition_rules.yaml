@@ -61,5 +61,3 @@ cleaning:
   major_prefixes: [请问, 帮我, 帮忙, 一下, 有多少个, 多少个, 几个, 有几个, 哪些, 谁是]
   dialog_scaffolding: [帮我, 请问, 查询一下, 查一下, 介绍一下, 看看, 找找]
   intent_scaffolding: [帮我, 请问, 查询一下, 查一下, 介绍一下, 候选人, 有哪些, 有多少个, 都有谁, 谁比较好]
-
-structured_project_tags: [推荐系统, 搜索系统, 交易系统, 发票解析]

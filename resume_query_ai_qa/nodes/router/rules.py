@@ -6,6 +6,12 @@ draft.
 
 This module does not apply guards or final authoritative recomputation. It only
 builds the draft that later stages can correct and finalize.
+
+中文阅读提示：
+这个文件是“规则 fallback 草稿生成器”。它的顺序是：
+conditions -> signals -> handlers -> sub_intents -> RouterOutput draft。
+signals.py 只负责侦察；本文件才把信号变成候选 intent 草稿。这里不做最终权威
+重算，最终字段以后交给 finalizer.py。
 """
 
 from __future__ import annotations
@@ -41,6 +47,10 @@ def build_rule_router_draft(question: str, config: ResumeQAConfig | None = None)
     Updates RouterOutput: draft intent, sub_intents, evidence, conditions,
     context_policy, requires_jd/requires_evidence hints.
     Does not: apply guard overrides, normalize conditions, or finalize fields.
+
+    中文：
+    规则路径总入口。先抽条件，再检测信号；非简历领域或敏感面试问题直接
+    out_of_scope；普通问题进入 handler 链路推断 sub_intents。
     """
     cfg = config or load_config()
     text = str(question or "").strip()
@@ -72,7 +82,11 @@ def build_rule_router_draft(question: str, config: ResumeQAConfig | None = None)
 
 
 def build_out_of_scope_draft(text: str, config: ResumeQAConfig) -> RouterOutput:
-    """Build the out_of_scope draft used by safety and empty-question paths."""
+    """Build the out_of_scope draft used by safety and empty-question paths.
+
+    中文：
+    构造安全边界结果。空问题、非简历问题、敏感面试问题都会走这里。
+    """
     return RouterOutput(
         intent="out_of_scope",
         is_compound=False,
@@ -94,7 +108,12 @@ def build_out_of_scope_draft(text: str, config: ResumeQAConfig) -> RouterOutput:
 
 
 def build_interview_router_draft(ctx: RuleContext) -> RouterOutput:
-    """Build the interview-question draft when interview trigger terms match."""
+    """Build the interview-question draft when interview trigger terms match.
+
+    中文：
+    面试题生成专用草稿。若问题里带候选人引用，会把候选人补成
+    candidate_name condition。
+    """
     conditions = list(ctx.conditions)
     if ctx.signals.candidate_reference:
         conditions = [*conditions, *candidate_reference_conditions(ctx.text)]
@@ -120,7 +139,12 @@ def infer_rule_sub_intents(
     signals: RouterSignals,
     config: ResumeQAConfig,
 ) -> tuple[list[str], dict[str, list[str]], bool, bool]:
-    """Infer sub-intents by running rule handlers in a stable order."""
+    """Infer sub-intents by running rule handlers in a stable order.
+
+    中文：
+    这里是规则 intent 的核心执行顺序。每个 handler 看一类信号，命中后往
+    IntentDraft 里追加 sub_intent/evidence/requires_* 提示。
+    """
     draft = IntentDraft()
     ctx = RuleContext(text=text, conditions=conditions, signals=signals, config=config)
     for handler in RULE_INTENT_HANDLERS:
@@ -139,7 +163,12 @@ def build_rule_router_output(
     requires_evidence: bool,
     config: ResumeQAConfig,
 ) -> RouterOutput:
-    """Assemble the rule RouterOutput draft from inferred sub-intents."""
+    """Assemble the rule RouterOutput draft from inferred sub-intents.
+
+    中文：
+    把 handler 产出的 sub_intents 组装成 RouterOutput 草稿。多个 sub_intent
+    会变成 compound；一个 sub_intent 就作为主 intent。
+    """
     if signals.candidate_reference:
         conditions = [*conditions, *candidate_reference_conditions(text)]
     if len(sub_intents) > 1:
@@ -171,7 +200,11 @@ def build_rule_router_output(
 
 
 def dedupe_rule_intents(values: list[str]) -> list[str]:
-    """Dedupe intent-like string lists while preserving order."""
+    """Dedupe intent-like string lists while preserving order.
+
+    中文：
+    对 intent/sub_intent/risk_flag 这类字符串列表去重，保留第一次出现顺序。
+    """
     output: list[str] = []
     seen = set()
     for value in values:
@@ -183,7 +216,11 @@ def dedupe_rule_intents(values: list[str]) -> list[str]:
 
 
 def dedupe_rule_conditions(values: list[QueryCondition]) -> list[QueryCondition]:
-    """Dedupe raw QueryCondition values while preserving original priority."""
+    """Dedupe raw QueryCondition values while preserving original priority.
+
+    中文：
+    对 raw QueryCondition 去重，并优先保留更长、更具体的条件值。
+    """
     output: list[QueryCondition] = []
     seen: set[str] = set()
     for value in sorted(values, key=lambda item: len(item.raw_value), reverse=True):
@@ -199,7 +236,11 @@ def dedupe_rule_conditions(values: list[QueryCondition]) -> list[QueryCondition]
 
 
 def intent_reason(intent: str, evidence: list[str], config: ResumeQAConfig | None = None) -> str:
-    """Return the configured human-readable reason for a rule intent."""
+    """Return the configured human-readable reason for a rule intent.
+
+    中文：
+    从 router_rules.yaml.intent_reasons 取说明文字，用于 sub_intent_evidence.reason。
+    """
     cfg = config or load_config()
     reasons = cfg.router_rules.get("intent_reasons", {}) or {}
     if intent in reasons:
@@ -209,12 +250,21 @@ def intent_reason(intent: str, evidence: list[str], config: ResumeQAConfig | Non
 
 
 def condition_evidence(conditions: list[QueryCondition]) -> list[str]:
-    """Return evidence strings from extracted conditions."""
+    """Return evidence strings from extracted conditions.
+
+    中文：
+    把抽出来的条件转成 evidence 字符串，供 intent 证据记录使用。
+    """
     return [item.evidence or item.raw_value for item in conditions if item.evidence or item.raw_value]
 
 
 def handle_count_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """count trigger terms -> candidate_count; major count also keeps filter intent."""
+    """count trigger terms -> candidate_count; major count also keeps filter intent.
+
+    中文：
+    命中“几个/多少”等 count 词时添加 candidate_count；如果是专业人数问题，
+    额外保留 candidate_filter，便于后续先过滤再统计。
+    """
     if not contains_any(ctx.text, terms(ctx.config, "intent_rules", "candidate_count", "trigger_any")) or ctx.signals.context_pool_priority:
         return
     if any(condition.type == "major" for condition in ctx.conditions):
@@ -223,7 +273,12 @@ def handle_count_intent(draft: IntentDraft, ctx: RuleContext) -> None:
 
 
 def handle_list_or_profile_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """list terms -> candidate_list, or profile/evidence for single-candidate references."""
+    """list terms -> candidate_list, or profile/evidence for single-candidate references.
+
+    中文：
+    处理“都有谁/列一下/哪些人”。如果问题其实是在问单个候选人的项目或经历，
+    会转成 profile/evidence，而不是候选人列表。
+    """
     if ctx.signals.pair_compare or not contains_any(ctx.text, terms(ctx.config, "intent_rules", "candidate_list", "trigger_any")):
         return
     if (
@@ -241,7 +296,12 @@ def handle_list_or_profile_intent(draft: IntentDraft, ctx: RuleContext) -> None:
 
 
 def handle_profile_terms_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """profile terms without open discovery -> candidate_profile_intro."""
+    """profile terms without open discovery -> candidate_profile_intro.
+
+    中文：
+    命中“介绍/背景/简历”等画像词时添加 candidate_profile_intro；但开放发现
+    类问题不在这里抢 intent。
+    """
     discovery_terms = terms(ctx.config, "signals", "discovery_terms") + terms(ctx.config, "signals", "open_recall_terms")
     is_discovery_without_reference = contains_any(ctx.text, discovery_terms) and not (
         ctx.signals.candidate_reference or ctx.signals.context_single_reference
@@ -252,7 +312,11 @@ def handle_profile_terms_intent(draft: IntentDraft, ctx: RuleContext) -> None:
 
 
 def handle_single_candidate_project_profile_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """single candidate + project listing terms -> candidate_profile_intro."""
+    """single candidate + project listing terms -> candidate_profile_intro.
+
+    中文：
+    明确某个候选人 + 项目列表词，通常是问这个人的项目画像。
+    """
     if (
         ctx.signals.candidate_reference
         and ctx.signals.project_listing
@@ -264,14 +328,23 @@ def handle_single_candidate_project_profile_intent(draft: IntentDraft, ctx: Rule
 
 
 def handle_evidence_locator_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """evidence locator terms -> evidence_question and requires_evidence."""
+    """evidence locator terms -> evidence_question and requires_evidence.
+
+    中文：
+    命中“依据/证据/为什么/哪里体现”等词时添加 evidence_question，并提示需要证据。
+    """
     if ctx.signals.evidence_locator:
         draft.add("evidence_question", matched_terms(ctx.text, terms(ctx.config, "intent_rules", "evidence_question", "trigger_any")))
         draft.requires_evidence = True
 
 
 def handle_context_pool_filter_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """context candidate pool + discovery/filter condition -> candidate_filter."""
+    """context candidate pool + discovery/filter condition -> candidate_filter.
+
+    中文：
+    针对“这些人里找金融相关的”这类上下文候选池过滤问题，添加 candidate_filter。
+    如果还问项目/经历，会再补 evidence_question。
+    """
     has_filter_condition = any(condition.type in {"domain", "skill", "keyword", "scope", "major"} for condition in ctx.conditions)
     if not (ctx.signals.context_pool_reference and ctx.signals.discovery and has_filter_condition):
         return
@@ -288,7 +361,12 @@ def handle_context_pool_filter_intent(draft: IntentDraft, ctx: RuleContext) -> N
 
 
 def handle_compare_or_ranking_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """pair comparison -> candidate_compare_pair; ranking signals -> candidate_ranking."""
+    """pair comparison -> candidate_compare_pair; ranking signals -> candidate_ranking.
+
+    中文：
+    两人对比走 candidate_compare_pair；多人排序/推荐/最强走 candidate_ranking，
+    并提示需要 JD 和证据。
+    """
     if ctx.signals.pair_compare or (ctx.signals.context_pair_reference and contains_any(ctx.text, terms(ctx.config, "pair_compare", "compare_terms"))):
         draft.add("candidate_compare_pair", matched_terms(ctx.text, terms(ctx.config, "intent_rules", "candidate_compare_pair", "trigger_any")))
         draft.requires_evidence = True
@@ -299,7 +377,11 @@ def handle_compare_or_ranking_intent(draft: IntentDraft, ctx: RuleContext) -> No
 
 
 def handle_single_candidate_fit_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """single-candidate fit question -> profile + evidence sub-intents."""
+    """single-candidate fit question -> profile + evidence sub-intents.
+
+    中文：
+    单个候选人是否适合某方向，通常需要“画像 + 证据”两个子任务。
+    """
     if ctx.signals.single_candidate_fit and not ctx.signals.pair_compare:
         draft.add("candidate_profile_intro", matched_terms(ctx.text, terms(ctx.config, "signals", "fit_terms")))
         draft.add("evidence_question", matched_terms(ctx.text, terms(ctx.config, "signals", "single_candidate_evidence_terms")))
@@ -307,7 +389,11 @@ def handle_single_candidate_fit_intent(draft: IntentDraft, ctx: RuleContext) -> 
 
 
 def handle_candidate_domain_evidence_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """candidate reference + domain + yes/no experience terms -> evidence_question."""
+    """candidate reference + domain + yes/no experience terms -> evidence_question.
+
+    中文：
+    明确候选人 + 领域 + 是否有经验，转成 evidence_question，因为答案必须找简历依据。
+    """
     if (
         ctx.signals.candidate_reference
         and any(condition.type == "domain" for condition in ctx.conditions)
@@ -321,7 +407,12 @@ def handle_candidate_domain_evidence_intent(draft: IntentDraft, ctx: RuleContext
 
 
 def handle_context_single_evidence_override(draft: IntentDraft, ctx: RuleContext) -> None:
-    """context single reference + domain experience terms overrides profile into evidence."""
+    """context single reference + domain experience terms overrides profile into evidence.
+
+    中文：
+    “第一名有金融经验吗”这类上下文单人问题，如果已误判为 profile，会覆盖成
+    evidence_question。
+    """
     if (
         ctx.signals.context_single_reference
         and any(condition.type == "domain" for condition in ctx.conditions)
@@ -337,7 +428,12 @@ def handle_context_single_evidence_override(draft: IntentDraft, ctx: RuleContext
 
 
 def handle_condition_fallback_intent(draft: IntentDraft, ctx: RuleContext) -> None:
-    """remaining extracted conditions with no intent -> candidate_filter fallback."""
+    """remaining extracted conditions with no intent -> candidate_filter fallback.
+
+    中文：
+    如果已经抽到 domain/skill/major 等条件，但没有任何明确 intent，就兜底为
+    candidate_filter。
+    """
     if draft.sub_intents or not ctx.conditions:
         return
     draft.add(

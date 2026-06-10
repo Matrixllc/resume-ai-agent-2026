@@ -1,4 +1,17 @@
-"""Normalize router conditions before execution policy and planning."""
+"""Normalize router conditions before execution policy and planning.
+
+Read this file after README.md and CONDITION_FLOW.md. This node only converts
+raw RouterOutput.conditions into stable RouterOutput.normalized_conditions.
+
+It does not change intent, scenario_decisions, tool policy, or answer content.
+Those decisions belong to router, execution_policy, planner/compiler, and
+aggregator.
+
+中文阅读提示：
+这个节点只做 raw conditions -> normalized_conditions。router 已经判断了
+intent/scenario/context；这里负责把 domain/skill/concept/major/scope/
+candidate_name 标准化成后续节点可稳定消费的条件。
+"""
 
 from __future__ import annotations
 
@@ -15,7 +28,20 @@ CONTEXT_COLLECTION_REF_TYPES = {"ranking_top", "ranking_top_k", "candidate_pool"
 
 
 def normalize_router_output(router_output: RouterOutput, question: str) -> RouterOutput:
-    """补齐缺失条件，并附加稳定的归一化形式。"""
+    """Complete raw conditions and attach normalized conditions.
+
+    Inputs:
+    - router_output: output from router, with raw conditions and context_policy.
+    - question: original user question, used for condition fallback and
+      preference-target marking.
+
+    Output:
+    - a copied RouterOutput with updated conditions and normalized_conditions.
+
+    中文：
+    主入口。补 raw conditions，合并显式候选人名，归一化条件，标记偏好目标，
+    并删除被误抽成 candidate_name 的上下文指代词。
+    """
     if router_output.intent == "out_of_scope":
         return router_output.model_copy(update={"conditions": [], "normalized_conditions": []})
     conditions = list(router_output.conditions or [])
@@ -34,7 +60,12 @@ def normalize_router_output(router_output: RouterOutput, question: str) -> Route
 
 
 def _merge_candidate_reference_conditions(conditions: list[QueryCondition], question: str) -> list[QueryCondition]:
-    """把显式候选人姓名补成候选人条件，避免 LLM 漏填 conditions。"""
+    """Merge explicit candidate names into raw candidate_name conditions.
+
+    中文：
+    候选人姓名不走 taxonomy。这里把当前问题里显式出现的候选人补成
+    candidate_name，避免 router/LLM 漏填。
+    """
     existing = {(item.type, item.raw_value) for item in conditions}
     additions = [item for item in candidate_reference_conditions(question) if (item.type, item.raw_value) not in existing]
     return [*conditions, *additions]
@@ -44,7 +75,12 @@ def _drop_context_reference_candidate_names(
     conditions: list[QueryCondition] | list[NormalizedCondition],
     router_output: RouterOutput,
 ) -> list[QueryCondition] | list[NormalizedCondition]:
-    """移除把上下文指代词误抽成候选人的条件。"""
+    """Drop context reference words that were mistaken as candidate names.
+
+    中文：
+    “第一名/这些人/这两个人”应由 context_policy 解析，不应该作为真实
+    candidate_name condition 继续传给后续节点。
+    """
     policy = router_output.context_policy
     if not policy.uses_context or policy.context_ref_type not in CONTEXT_COLLECTION_REF_TYPES:
         return conditions
@@ -59,7 +95,12 @@ def _drop_context_reference_candidate_names(
 
 
 def _is_context_reference_candidate(condition: QueryCondition | NormalizedCondition, context_terms: set[str]) -> bool:
-    """判断候选人条件是否只是“前三名/这些人”等上下文引用。"""
+    """Return true when a candidate_name condition is only a context reference.
+
+    中文：
+    如果条件里包含真实候选人姓名，就保留；如果只是上下文词加少量语气词，
+    就认为它不是候选人名。
+    """
     values = {
         str(getattr(condition, "raw_value", "") or "").strip(),
         str(getattr(condition, "normalized_value", "") or "").strip(),
@@ -72,7 +113,11 @@ def _is_context_reference_candidate(condition: QueryCondition | NormalizedCondit
 
 
 def _contains_context_term_only(value: str, context_terms: set[str]) -> bool:
-    """上下文词加少量语气/连接词时，不视为真实候选人名。"""
+    """Return true for context terms plus a few filler/connector characters.
+
+    中文：
+    例如“第一名”“第一名的”“这些人里”，都不是候选人姓名。
+    """
     for term in context_terms:
         if term and term in value and len(value.replace(term, "")) <= 4:
             return True
@@ -80,7 +125,11 @@ def _contains_context_term_only(value: str, context_terms: set[str]) -> bool:
 
 
 def _contains_known_candidate_name(value: str) -> bool:
-    """判断文本中是否含有真实候选人姓名。"""
+    """Return true when text contains a known candidate name from data access.
+
+    中文：
+    通过数据层候选人名单判断是否真有候选人姓名，防止误删真实 candidate_name。
+    """
     from resume_query_ai_qa.core.data_access import list_known_candidate_names
 
     return any(name and name in value for name in list_known_candidate_names())

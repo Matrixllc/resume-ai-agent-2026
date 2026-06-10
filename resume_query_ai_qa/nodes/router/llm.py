@@ -6,6 +6,12 @@ scenario contracts, then returns a draft for guard/finalizer stages.
 
 This module does not apply hard guards, complete missing conditions, or compute
 final authoritative fields such as allowed_tool_names.
+
+中文阅读提示：
+这个文件只负责 LLM draft 路径。LLM 应该产出完整 RouterOutput 草稿；
+本文件会修正 JSON 形状、校验 schema 和 scenario 合同。它不做硬规则纠偏，
+也不决定最终 allowed_tool_names / requires_jd / requires_evidence，这些交给
+guard.py 和 finalizer.py。
 """
 
 from __future__ import annotations
@@ -32,6 +38,10 @@ def build_llm_router_draft(question: str, config: ResumeQAConfig) -> RouterOutpu
     Updates RouterOutput: all draft fields supplied by the LLM, except
     normalized_conditions/allowed_tool_names are reset for later stages.
     Does not: apply guards, complete conditions, or finalize derived fields.
+
+    中文：
+    LLM draft 的总入口。顺序是调用 LLM -> 转 dict -> 规整字段形状 ->
+    校验 RouterOutput schema/scenario。任何一步失败都回退到规则 draft。
     """
     if not question:
         return rules.build_out_of_scope_draft(question, config)
@@ -45,7 +55,12 @@ def build_llm_router_draft(question: str, config: ResumeQAConfig) -> RouterOutpu
 
 
 def run_llm_router(question: str, config: ResumeQAConfig) -> RouterOutput | dict[str, Any]:
-    """Call the structured LLM router and return its raw payload."""
+    """Call the structured LLM router and return its raw payload.
+
+    中文：
+    真正调用结构化 LLM。prompt 里带 intents.yaml 和 scenarios.yaml 的可选项，
+    让 LLM 按 RouterOutput schema 返回草稿。
+    """
     prompt = build_router_prompt(
         question=question,
         intents=config.intents.get("intents", {}) or {},
@@ -55,12 +70,22 @@ def run_llm_router(question: str, config: ResumeQAConfig) -> RouterOutput | dict
 
 
 def coerce_router_payload(payload: RouterOutput | dict[str, Any]) -> dict[str, Any]:
-    """Coerce RouterOutput or dict payload into the dict shape validators expect."""
+    """Coerce RouterOutput or dict payload into the dict shape validators expect.
+
+    中文：
+    把 LLM 返回值统一变成 dict，方便后续字段修形和 Pydantic 校验。
+    """
     return payload.model_dump() if isinstance(payload, RouterOutput) else dict(payload or {})
 
 
 def normalize_router_payload_shape(payload: dict[str, Any], config: ResumeQAConfig) -> dict[str, Any]:
-    """Normalize LLM JSON shape without making business routing decisions."""
+    """Normalize LLM JSON shape without making business routing decisions.
+
+    中文：
+    这里只修“形状”，不重新理解问题。比如 intent 写成多个 token 时转成
+    compound；conditions 不是 list 就置空；normalized_conditions 和
+    allowed_tool_names 先清空，等后续节点/阶段权威生成。
+    """
     output = dict(payload or {})
     valid_intents = set((config.intents.get("intents", {}) or {}).keys())
     raw_intent = output.get("intent", "")
@@ -101,7 +126,12 @@ def normalize_router_payload_shape(payload: dict[str, Any], config: ResumeQAConf
 
 
 def validate_router_payload_schema(payload: dict[str, Any], question: str, config: ResumeQAConfig) -> RouterOutput:
-    """Validate RouterOutput schema and return rule fallback draft on contract failure."""
+    """Validate RouterOutput schema and return rule fallback draft on contract failure.
+
+    中文：
+    校验 LLM 草稿是否真能成为 RouterOutput，以及 intent/scenario 是否在 YAML
+    允许范围内。不合法就走规则 fallback，并写 risk_flag 记录原因。
+    """
     try:
         output = RouterOutput.model_validate(payload)
     except (ValidationError, ValueError, TypeError) as error:
@@ -119,7 +149,12 @@ def validate_router_payload_schema(payload: dict[str, Any], question: str, confi
 
 
 def validate_scenario_contract(output: RouterOutput, config: ResumeQAConfig) -> str:
-    """Return a scenario contract error string, or empty when the draft is valid."""
+    """Return a scenario contract error string, or empty when the draft is valid.
+
+    中文：
+    检查每个 intent 是否都有 scenario_decision，且 scenario 必须是该 intent
+    在 scenarios.yaml 里允许的场景。
+    """
     intents = output.sub_intent_candidates if output.intent == "compound" else [output.intent]
     for intent in intents:
         decision = output.scenario_decisions.get(str(intent))
@@ -131,7 +166,11 @@ def validate_scenario_contract(output: RouterOutput, config: ResumeQAConfig) -> 
 
 
 def build_llm_fallback_flag(error: Exception) -> str:
-    """Build the audit flag attached when LLM routing falls back to rules."""
+    """Build the audit flag attached when LLM routing falls back to rules.
+
+    中文：
+    生成审计标记，说明为什么 LLM 路径失败并回退到规则路径。
+    """
     message = str(error).strip().replace("\n", " ")
     if len(message) > 180:
         message = message[:180] + "..."
@@ -140,7 +179,11 @@ def build_llm_fallback_flag(error: Exception) -> str:
 
 
 def extract_valid_intent_tokens(value: Any, valid_intents: set[str]) -> list[str]:
-    """Extract valid intent tokens from a string/list value supplied by the LLM."""
+    """Extract valid intent tokens from a string/list value supplied by the LLM.
+
+    中文：
+    从 LLM 可能混乱的 intent 字符串/list 中，只保留 YAML 定义过的合法 intent。
+    """
     if isinstance(value, list):
         raw_values = [str(item).strip() for item in value]
     else:
