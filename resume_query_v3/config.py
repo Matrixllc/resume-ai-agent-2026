@@ -15,8 +15,8 @@ def get_config() -> Dict[str, Any]:
     root = repo_root()
     data_root_raw = os.getenv("RESUME_DATA_ROOT", "").strip()
     data_root = Path(data_root_raw).expanduser().resolve() if data_root_raw else None
-    resume_dir = data_root / "resume" if data_root else root / "resume"
-    data_dir = data_root / "resume_query_v3" / "data" if data_root else app_root / "data"
+    data_dir = data_root / "data" if data_root else root / "data"
+    resume_dir = data_dir / "resume"
     taxonomy_dir = app_root.parent / "shared_taxonomy"
     embedding = get_resume_embedding_config()
     openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()

@@ -72,7 +72,7 @@ def _diagnosis_summary(state: ResumeQAState, *, include_lookup: bool = True) -> 
             "tool_failures": tool_failures,
             "warnings": warnings[:8],
             "validation_errors": {key: value for key, value in validation.items() if value},
-            "trace_lookup": f"trace_id={state.trace.trace_id}; detail=resume_query_ai_qa/logs/*{state.trace.trace_id}*.json" if include_lookup and state.trace.trace_id else "",
+            "trace_lookup": f"trace_id={state.trace.trace_id}; detail=data/logs/query_ai/*{state.trace.trace_id}*.json" if include_lookup and state.trace.trace_id else "",
         }
     )
 

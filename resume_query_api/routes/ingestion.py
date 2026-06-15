@@ -473,8 +473,8 @@ def _storage_blocked_message(reason: str) -> str:
 
 def _resolve_resume_directory(directory: str, config: Dict[str, Any]) -> Path:
     repo_root = Path(config.get("paths", {}).get("repo_root") or Path(__file__).resolve().parents[2]).resolve()
-    resume_dir = Path(config.get("paths", {}).get("resume_dir") or repo_root / "resume").resolve()
-    target_dir = Path(directory or "resume").expanduser()
+    resume_dir = Path(config.get("paths", {}).get("resume_dir") or repo_root / "data" / "resume").resolve()
+    target_dir = Path(directory).expanduser() if directory else resume_dir
     if target_dir.is_absolute():
         target_dir = target_dir.resolve()
     else:
@@ -486,7 +486,7 @@ def _resolve_resume_directory(directory: str, config: Dict[str, Any]) -> Path:
 
 def _resolve_upload_dir(value: Any, config: Dict[str, Any]) -> Path:
     repo_root = Path(config.get("paths", {}).get("repo_root") or Path(__file__).resolve().parents[2]).resolve()
-    resume_dir = Path(config.get("paths", {}).get("resume_dir") or repo_root / "resume").resolve()
+    resume_dir = Path(config.get("paths", {}).get("resume_dir") or repo_root / "data" / "resume").resolve()
     upload_dir = Path(value or resume_dir / "uploads").expanduser()
     if upload_dir.is_absolute():
         upload_dir = upload_dir.resolve()

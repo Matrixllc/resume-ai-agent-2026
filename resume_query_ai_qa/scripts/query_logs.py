@@ -13,11 +13,22 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 from pathlib import Path
 from typing import Any, Iterable
 
-DEFAULT_LOGS_DIR = Path(__file__).resolve().parents[1] / "logs"
+from resume_query_common.env import load_repo_env, repo_root
+
+
+def _default_logs_dir() -> Path:
+    load_repo_env(override=False)
+    data_root_raw = os.getenv("RESUME_DATA_ROOT", "").strip()
+    data_root = Path(data_root_raw).expanduser().resolve() if data_root_raw else repo_root()
+    return data_root / "data" / "logs" / "query_ai"
+
+
+DEFAULT_LOGS_DIR = _default_logs_dir()
 
 
 def load_run_summaries(logs_dir: Path = DEFAULT_LOGS_DIR) -> list[dict[str, Any]]:

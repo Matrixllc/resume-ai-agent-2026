@@ -22,7 +22,7 @@
 推荐顺序：
 
 1. `问答状态`：看 `diagnosis.headline`。
-2. `Trace ID`：复制后可在后端 `resume_query_ai_qa/logs/` 查完整 JSON。
+2. `Trace ID`：复制后可在后端 `data/logs/query_ai/` 查完整 JSON。
 3. `Route Events`：看 validator 路由到 execute、repair、fail、clarify 还是 fallback。
 4. `链路追踪`：看 node 顺序、`status` 和 `summary`。
 5. `Compiler Hint Selection`：看 tool hint accepted/rejected 和原因。

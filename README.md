@@ -63,10 +63,9 @@ flowchart LR
 | `resume_query_api/` | HTTP API，调用 Query-AI graph 并返回答案/诊断。 | 是。 |
 | `resume_query_frontend_v3/` | 前端展示和 Debug 面板。 | 是。 |
 | `shared_taxonomy/` | domain/skill/concept 等共享 taxonomy。 | 是，被条件归一化和规则层使用。 |
-| `app.py` / `config.py` / `requirements.txt` | 早期 Streamlit/RAG 实验入口和依赖。 | 否，不进入当前 Query-AI 生产主链。 |
+| `requirements.txt` | Python 依赖清单。 | 是。 |
 | `pictures/` | 早期说明图片/截图素材。 | 否，仅参考。 |
-| `vector_db/` | 本地 Chroma 运行产物。 | 否，部署时按环境生成或挂载，不作为源码逻辑。 |
-| `resume_query_ai_qa/logs/` | Query-AI 本地运行日志和 detail JSON。 | 否，是可观测产物，已由 `.gitignore` 忽略。 |
+| `data/` | 统一运行数据目录，包含简历输入、SQLite、Chroma、Query-AI 日志和备份。 | 否，运行时生成，源码只保留 `data/resume/.gitkeep`。 |
 
 ## 部署最小配置
 
@@ -83,15 +82,15 @@ RESUME_APP_PASSWORD=change_me_before_deploy
 cp .env.example .env
 ```
 
-简历文件默认放在项目根目录：
+简历文件默认放在统一运行数据目录：
 
 ```text
-resume/
-resume/uploads/
+data/resume/
+data/resume/uploads/
 ```
 
-前端“简历入库”频道支持上传单份简历，文件会持久保存到 `resume/uploads/`；
-也可以触发批量扫描，默认扫描 `resume/`。入库完成后，新候选人会出现在
+前端“简历入库”频道支持上传单份简历，文件会持久保存到 `data/resume/uploads/`；
+也可以触发批量扫描，默认扫描 `data/resume/`。入库完成后，新候选人会出现在
 “候选人信息”中，并可直接被 “AI 问答” 使用。
 
 PaaS 公网部署时建议拆成 FastAPI 后端和 Next.js 前端两个服务：
@@ -103,7 +102,7 @@ NEXT_PUBLIC_API_BASE_URL=https://your-api-domain
 RESUME_DATA_ROOT=/persistent/resume-query
 ```
 
-`RESUME_DATA_ROOT` 必须指向 PaaS 的持久化磁盘。SQLite、Chroma、上传简历和批量扫描目录会统一落在这个根目录下；如果平台没有持久化磁盘，只适合部署前端或临时 demo，不适合保存候选人库。
+`RESUME_DATA_ROOT` 必须指向 PaaS 的持久化磁盘。SQLite、Chroma、Query-AI 日志、上传简历和批量扫描目录会统一落在 `$RESUME_DATA_ROOT/data/` 下；如果平台没有持久化磁盘，只适合部署前端或临时 demo，不适合保存候选人库。
 
 ## Query-AI 主链
 

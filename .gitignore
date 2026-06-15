@@ -20,8 +20,18 @@ resume_query_v3/logs/
 resume_query_v3/benchmarks/reports/
 
 documents/
-resume/*
-!resume/.gitkeep
+data/*
+!data/resume/
+data/resume/*
+!data/resume/**/
+!data/resume/**/*.doc
+!data/resume/**/*.docx
+!data/resume/**/*.pdf
+!data/resume/.gitkeep
+data/structured/
+data/vector/
+data/logs/
+data/backups/
 resume_query_v3/resume/
 vector_db/
 *.db

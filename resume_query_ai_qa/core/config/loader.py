@@ -12,11 +12,13 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict
 
 import yaml
 
+from resume_query_common.env import load_repo_env, repo_root
 from resume_query_ai_qa.core.config_validation import validate_config_structure
 
 from .compiler_flags import load_project_env
@@ -25,12 +27,17 @@ from .model import ResumeQAConfig
 
 def load_config(configs_dir: Path | None = None) -> ResumeQAConfig:
     """读取所有 QA runtime YAML 并执行结构校验；不承载业务决策。"""
+    load_repo_env(override=False)
     app_root = Path(__file__).resolve().parents[2]
     config_dir = Path(configs_dir or app_root / "configs")
+    root = repo_root()
+    data_root_raw = os.getenv("RESUME_DATA_ROOT", "").strip()
+    data_root = Path(data_root_raw).expanduser().resolve() if data_root_raw else root
     cfg = ResumeQAConfig(
         app_root=app_root,
         configs_dir=config_dir,
         taxonomy_dir=app_root.parent / "shared_taxonomy",
+        logs_dir=data_root / "data" / "logs" / "query_ai",
         intents=load_yaml(config_dir / "intents.yaml"),
         scenarios=load_yaml(config_dir / "scenarios.yaml"),
         tool_policy=load_yaml(config_dir / "tool_policy.yaml"),

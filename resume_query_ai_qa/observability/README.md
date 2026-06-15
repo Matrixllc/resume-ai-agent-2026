@@ -17,7 +17,7 @@ observability 负责把这些事件和 trace 摘要安全落盘
 graph runner / graph nodes / graph routes
 -> state.trace
 -> observability.emit_event / write_run_log
--> logs/query_ai_events.jsonl / qa_runs.jsonl / <timestamp>_<trace_id>.json
+-> data/logs/query_ai/query_ai_events.jsonl / qa_runs.jsonl / <timestamp>_<trace_id>.json
 ```
 
 更具体地说：
@@ -35,10 +35,10 @@ runner.run
 
 ## 它做什么
 
-- 配置 Loguru sink，写入 `logs/query_ai_events.jsonl`。
+- 配置 Loguru sink，写入 `data/logs/query_ai/query_ai_events.jsonl`。
 - 输出结构化事件：run start/end、node end、route decision、state snapshot、run error。
-- 写每轮查询摘要：`logs/qa_runs.jsonl`。
-- 写单轮诊断详情：`logs/<timestamp>_<trace_id>.json`。
+- 写每轮查询摘要：`data/logs/query_ai/qa_runs.jsonl`。
+- 写单轮诊断详情：`data/logs/query_ai/<timestamp>_<trace_id>.json`。
 - 把大对象压缩成诊断摘要，例如工具结果形态、答案长度、错误位置、上下文变化。
 
 ## 它不做什么
@@ -80,7 +80,7 @@ runner.run
 - 不决定 trace 内容
 - 不改变业务状态
 - 把 trace 和事件转成 JSON 安全格式
-- 把运行摘要和诊断详情写入 `logs/`
+- 把运行摘要和诊断详情写入根目录 `data/logs/query_ai/`
 
 ## YAML 关系
 
@@ -88,7 +88,7 @@ runner.run
 
 它只通过 `ResumeQAConfig` 使用：
 
-- `config.app_root`：确定 `logs/` 输出目录。
+- `config.logs_dir`：确定 Query-AI 日志输出目录，默认是根目录 `data/logs/query_ai/`。
 - trace/debug 相关状态：来自运行中的 `qa.trace`，不是这里重新判断。
 
 所以本目录不需要单独的 `YAML_USAGE.md`。强行写会让读者误以为 observability 也参与业务规则决策。

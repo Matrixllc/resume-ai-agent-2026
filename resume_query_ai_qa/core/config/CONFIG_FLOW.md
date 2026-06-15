@@ -30,6 +30,7 @@ load_config(configs_dir: Path | None = None)
 app_root = resume_query_ai_qa/
 config_dir = configs_dir or app_root / "configs"
 taxonomy_dir = app_root.parent / "shared_taxonomy"
+logs_dir = <repo or RESUME_DATA_ROOT> / "data" / "logs" / "query_ai"
 ```
 
 然后逐个读取：

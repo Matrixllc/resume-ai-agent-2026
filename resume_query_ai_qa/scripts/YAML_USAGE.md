@@ -61,8 +61,8 @@ jd_scoring.yaml
 直接读取：
 
 ```text
-logs/qa_runs.jsonl
-logs/<timestamp>_<trace_id>.json
+data/logs/query_ai/qa_runs.jsonl
+data/logs/query_ai/<timestamp>_<trace_id>.json
 ```
 
 不读取：
@@ -82,7 +82,7 @@ answer_layouts.yaml
 ```text
 observability/logging.py
 state/trace.py
-logs/<timestamp>_<trace_id>.json
+data/logs/query_ai/<timestamp>_<trace_id>.json
 ```
 
 ## 3. 和 Observability 的关系

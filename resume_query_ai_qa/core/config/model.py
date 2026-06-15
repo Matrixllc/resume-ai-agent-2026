@@ -28,6 +28,7 @@ class ResumeQAConfig(BaseModel):
     app_root: Path
     configs_dir: Path
     taxonomy_dir: Path
+    logs_dir: Path
     intents: Dict[str, Any] = Field(default_factory=dict)
     scenarios: Dict[str, Any] = Field(default_factory=dict)
     tool_policy: Dict[str, Any] = Field(default_factory=dict)

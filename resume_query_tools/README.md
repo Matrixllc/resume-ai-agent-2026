@@ -19,8 +19,8 @@ Python API，供 `resume_query_ai_qa` 和 `resume_query_api` 使用。
 默认路径：
 
 ```text
-SQL:    resume_query_v3/data/structured/structured_store.db
-Chroma: resume_query_v3/data/vector/chroma_store
+SQL:    data/structured/structured_store.db
+Chroma: data/vector/chroma_store
 ```
 
 可用环境变量覆盖：

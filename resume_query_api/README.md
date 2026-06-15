@@ -178,7 +178,7 @@ log_file_hint
 完整日志在：
 
 ```text
-resume_query_ai_qa/logs/<timestamp>_<trace_id>.json
+data/logs/query_ai/<timestamp>_<trace_id>.json
 ```
 
 ## 排查入口

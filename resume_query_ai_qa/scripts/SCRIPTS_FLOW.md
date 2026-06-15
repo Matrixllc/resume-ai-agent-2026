@@ -117,13 +117,13 @@ main
 
 ```text
 load_run_summaries
--> logs/qa_runs.jsonl
+-> data/logs/query_ai/qa_runs.jsonl
 -> summary rows
 ```
 
 ```text
 find_detail(trace_id)
--> logs/*_<trace_id>.json
+-> data/logs/query_ai/*_<trace_id>.json
 -> detail
 ```
 

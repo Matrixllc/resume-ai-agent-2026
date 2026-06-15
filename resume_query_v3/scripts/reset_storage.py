@@ -32,7 +32,7 @@ def main() -> None:
 
 def reset_storage(*, config: Dict[str, Any], dry_run: bool = False) -> Dict[str, Any]:
     paths = config["paths"]
-    app_root = Path(paths["app_root"])
+    report_root = Path(paths["repo_root"])
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = Path(paths["data_dir"]) / "backups" / timestamp
     targets = [
@@ -50,17 +50,17 @@ def reset_storage(*, config: Dict[str, Any], dry_run: bool = False) -> Dict[str,
         "archived": [],
         "removed": [],
         "recreated": [],
-        "skipped_missing": [str(path.relative_to(app_root)) for path in targets if not path.exists()],
+        "skipped_missing": [_display_path(path, report_root) for path in targets if not path.exists()],
     }
     if dry_run:
-        report["would_archive"] = [str(path.relative_to(app_root)) for path in existing_targets]
-        report["would_remove"] = [str(path.relative_to(app_root)) for path in existing_targets]
+        report["would_archive"] = [_display_path(path, report_root) for path in existing_targets]
+        report["would_remove"] = [_display_path(path, report_root) for path in existing_targets]
         return report
 
     clear_chroma_system_cache()
     backup_dir.mkdir(parents=True, exist_ok=False)
     for path in existing_targets:
-        relative = path.relative_to(app_root)
+        relative = Path(_display_path(path, report_root))
         destination = backup_dir / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         if path.is_dir():
@@ -74,7 +74,7 @@ def reset_storage(*, config: Dict[str, Any], dry_run: bool = False) -> Dict[str,
             shutil.rmtree(path)
         else:
             path.unlink()
-        report["removed"].append(str(path.relative_to(app_root)))
+        report["removed"].append(_display_path(path, report_root))
 
     _recreate_storage(config=config, report=report)
     clear_chroma_system_cache()
@@ -83,19 +83,20 @@ def reset_storage(*, config: Dict[str, Any], dry_run: bool = False) -> Dict[str,
 
 def _recreate_storage(*, config: Dict[str, Any], report: Dict[str, Any]) -> None:
     paths = config["paths"]
+    report_root = Path(paths["repo_root"])
     for key in ("logs_latest_dir", "logs_history_dir"):
         path = Path(paths[key])
         path.mkdir(parents=True, exist_ok=True)
-        report["recreated"].append(str(path.relative_to(Path(paths["app_root"]))))
+        report["recreated"].append(_display_path(path, report_root))
     Path(paths["vector_payload_file"]).parent.mkdir(parents=True, exist_ok=True)
     Path(paths["chroma_dir"]).mkdir(parents=True, exist_ok=True)
     StructuredStore(Path(paths["structured_store_file"]))
     PipelineJobStore(Path(paths["jobs_db"]))
     report["recreated"].extend(
         [
-            str(Path(paths["structured_store_file"]).relative_to(Path(paths["app_root"]))),
-            str(Path(paths["jobs_db"]).relative_to(Path(paths["app_root"]))),
-            str(Path(paths["chroma_dir"]).relative_to(Path(paths["app_root"]))),
+            _display_path(Path(paths["structured_store_file"]), report_root),
+            _display_path(Path(paths["jobs_db"]), report_root),
+            _display_path(Path(paths["chroma_dir"]), report_root),
         ]
     )
     try:
@@ -106,6 +107,13 @@ def _recreate_storage(*, config: Dict[str, Any], report: Dict[str, Any]) -> None
         report["recreated"].append(f"chroma_collection:{config['storage'].get('chroma_collection', 'resume_v3_project_chunks')}")
     except Exception as error:
         report["chroma_recreate_warning"] = f"{type(error).__name__}: {error}"
+
+
+def _display_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
 
 
 if __name__ == "__main__":

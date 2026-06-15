@@ -7,8 +7,9 @@
 本地简历文件会被解析并写入：
 
 ```text
-SQLite: resume_query_v3/data/structured/structured_store.db
-Chroma: resume_query_v3/data/vector/chroma_store
+简历:   data/resume/
+SQLite: data/structured/structured_store.db
+Chroma: data/vector/chroma_store
 ```
 
 这些数据再由 `resume_query_tools` 只读暴露给 `resume_query_ai_qa`。所以 v3 在项目里的位置不是“问答智能”，而是“数据可信度的底座”。
@@ -63,9 +64,9 @@ flowchart LR
 
 当前入库能力服务本地演示：
 
-- 默认读取项目根目录 `resume/`，并限制扫描目录必须位于该目录内。
+- 默认读取项目根目录 `data/resume/`，并限制扫描目录必须位于该目录内。
 - `POST /ingestion/resumes` 会触发批量扫描入库流程。
-- `POST /ingestion/resumes/upload` 会上传单份简历到 `resume/uploads/` 并立即入库。
+- `POST /ingestion/resumes/upload` 会上传单份简历到 `data/resume/uploads/` 并立即入库。
 - 文件预览和下载用于演示候选人原简历，不代表生产级文件服务。
 
 生产化前需要补齐：
@@ -86,14 +87,14 @@ import 入库 pipeline，也不直接访问底层 reader。
 ```bash
 curl -X POST http://127.0.0.1:8000/ingestion/resumes \
   -H 'Content-Type: application/json' \
-  -d '{"directory":"resume"}'
+  -d '{"directory":"data/resume"}'
 ```
 
 上传单份简历并入库：
 
 ```bash
 curl -X POST http://127.0.0.1:8000/ingestion/resumes/upload \
-  -F 'file=@resume/example.pdf'
+  -F 'file=@data/resume/example.pdf'
 ```
 
 健康检查：

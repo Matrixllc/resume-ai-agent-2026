@@ -1,7 +1,7 @@
 """Loguru-backed structured logging for Query-AI runs.
 
 这个文件负责什么：
-  配置结构化日志 sink，发送运行事件，并把一次查询的摘要/详情写入 logs/。
+  配置结构化日志 sink，发送运行事件，并把一次查询的摘要/详情写入统一 data/logs/query_ai/。
 
 应该从哪个函数读起：
   configure_query_ai_logging() -> emit_event() -> write_run_log()。
@@ -29,7 +29,7 @@ _DEFAULT_SINK_REMOVED = False
 def configure_query_ai_logging(config: ResumeQAConfig) -> None:
     """按应用配置初始化结构化日志输出；同一日志文件只注册一次。"""
     global _DEFAULT_SINK_REMOVED
-    logs_dir = config.app_root / "logs"
+    logs_dir = config.logs_dir
     logs_dir.mkdir(parents=True, exist_ok=True)
     sink = str(logs_dir / "query_ai_events.jsonl")
     if sink in _CONFIGURED_SINKS:
@@ -62,7 +62,7 @@ def emit_event(kind: str, *, config: ResumeQAConfig | None = None, **fields: Any
 def write_run_log(qa: ResumeQAState, config: ResumeQAConfig) -> None:
     """持久化一次查询的摘要和诊断明细；深度调试信息按 trace 开关写入。"""
     configure_query_ai_logging(config)
-    logs_dir = config.app_root / "logs"
+    logs_dir = config.logs_dir
     created_at = datetime.now(timezone.utc).isoformat()
     trace_id = qa.trace.trace_id or uuid.uuid4().hex
     summary = _compact_run_summary(qa, created_at, trace_id)

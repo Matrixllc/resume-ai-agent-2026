@@ -81,7 +81,7 @@ flowchart LR
 | `state/` | session context、trace event、state snapshot。 | 不做业务决策。 |
 | `observability/` | run summary、detail JSON、日志 sink 和可观测性输出。 | 不改变运行行为。 |
 | `scripts/` | 本地 CLI 和调试入口，如 `run_qa.py`、`query_logs.py`。 | 不作为 graph node，不替代 benchmark。 |
-| `logs/` | 本地运行产物。 | 不作为源码逻辑或配置真源。 |
+| `data/logs/query_ai/` | Query-AI 本地运行产物。 | 不作为源码逻辑或配置真源。 |
 
 ## 关键设计
 

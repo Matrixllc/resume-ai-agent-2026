@@ -40,7 +40,7 @@ emit_event
 -> configure_query_ai_logging
 -> _safe_payload
 -> logger.bind(...).info(kind)
--> logs/query_ai_events.jsonl
+-> data/logs/query_ai/query_ai_events.jsonl
 ```
 
 关键点：
@@ -60,8 +60,8 @@ configure_query_ai_logging(config)
 执行过程：
 
 ```text
-config.app_root / "logs"
--> logs/query_ai_events.jsonl
+config.logs_dir
+-> data/logs/query_ai/query_ai_events.jsonl
 -> logger.add(... serialize=True ...)
 ```
 
@@ -91,8 +91,8 @@ write_run_log
 -> _failed_at
 -> _compact_final_answer
 -> _context_delta
--> append logs/qa_runs.jsonl
--> write logs/<timestamp>_<trace_id>.json
+-> append data/logs/query_ai/qa_runs.jsonl
+-> write data/logs/query_ai/<timestamp>_<trace_id>.json
 ```
 
 当前详细 JSON 包含：
@@ -193,19 +193,19 @@ qa.updated_session_context
 实时看运行：
 
 ```text
-logs/query_ai_events.jsonl
+data/logs/query_ai/query_ai_events.jsonl
 ```
 
 找某轮 trace：
 
 ```text
-logs/qa_runs.jsonl
+data/logs/query_ai/qa_runs.jsonl
 ```
 
 看某轮为什么失败：
 
 ```text
-logs/<timestamp>_<trace_id>.json
+data/logs/query_ai/<timestamp>_<trace_id>.json
 -> failed_at
 -> decision_log
 -> route_events

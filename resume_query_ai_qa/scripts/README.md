@@ -22,7 +22,7 @@ developer / operator CLI
 ```text
 developer / operator CLI
 -> resume_query_ai_qa.scripts.query_logs
--> logs/qa_runs.jsonl + logs/<timestamp>_<trace_id>.json
+-> data/logs/query_ai/qa_runs.jsonl + data/logs/query_ai/<timestamp>_<trace_id>.json
 -> human-readable run view
 ```
 
@@ -46,7 +46,7 @@ developer / operator CLI
 | 文件 | 职责 | 输入 | 输出 |
 | --- | --- | --- | --- |
 | `run_qa.py` | 手动运行一轮 graph | question、session context JSON、LLM 开关 | answer、trace 或完整 state JSON |
-| `query_logs.py` | 浏览运行日志 | `logs/qa_runs.jsonl`、detail JSON、trace_id | 人类可读文本或 JSON view |
+| `query_logs.py` | 浏览运行日志 | `data/logs/query_ai/qa_runs.jsonl`、detail JSON、trace_id | 人类可读文本或 JSON view |
 | `__init__.py` | 包说明 | 无 | 无 |
 
 ## run_qa.py
@@ -99,7 +99,7 @@ qa_runs.jsonl summary
 注意点：
 
 - 只读日志，不修改日志。
-- 默认读取 `resume_query_ai_qa/logs/`。
+- 默认读取根目录 `data/logs/query_ai/`。
 - `--json` 输出的是脚本构建的 view，不是原始 detail 文件完整内容。
 - 如果没有日志，会返回空列表或提示“没有匹配的 Query-AI 运行日志”。
 

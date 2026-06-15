@@ -9,7 +9,7 @@ from .qa_utils import _compact_value, _result_count, _result_shape, _strip_empty
 
 
 def _trace_summary(state: ResumeQAState) -> Dict[str, Any]:
-    log_hint = f"resume_query_ai_qa/logs/*{state.trace.trace_id}*.json" if state.trace.trace_id else ""
+    log_hint = f"data/logs/query_ai/*{state.trace.trace_id}*.json" if state.trace.trace_id else ""
     diagnosis = _diagnosis_summary(state)
     return {
         "trace_id": state.trace.trace_id,
