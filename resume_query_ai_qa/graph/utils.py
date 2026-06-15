@@ -3,7 +3,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from resume_query_ai_qa.core.rules.session_context import scoped_session_context
 from resume_query_ai_qa.core.schemas import QueryPlan, ResumeQAState
+
+from .state import _GraphState
 
 
 def elapsed_ms(started: float) -> float:
@@ -16,6 +19,15 @@ def require_plan(qa: ResumeQAState) -> QueryPlan:
     if qa.plan is None:
         raise ValueError("graph state is missing plan")
     return qa.plan
+
+
+def current_session_context(state: _GraphState) -> dict[str, Any]:
+    """返回本轮允许下游节点使用的会话上下文。
+
+    graph 只负责把 router 的 context policy 投影到后续节点可读的上下文范围；
+    具体上下文规则在 core.rules.session_context 中。
+    """
+    return scoped_session_context(state.get("router_output"), state["qa"].session_context)
 
 
 def iter_plan_calls(plan: QueryPlan) -> list[Any]:

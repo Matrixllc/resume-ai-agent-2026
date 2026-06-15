@@ -1,4 +1,15 @@
-"""Answer Validator entrypoint."""
+"""Answer Validator entrypoint.
+
+这个文件负责什么：
+  最终答案出口前的只读校验入口，把 AggregatedAnswer 和 ToolResult[] 对齐成
+  ValidationResult。
+
+应该从哪个函数读起：
+  validate_answer()。
+
+不会负责什么：
+  不调用工具、不重写答案、不修 QueryPlan，也不逐句核验 LLM 文本中的全部事实。
+"""
 
 from __future__ import annotations
 
@@ -28,7 +39,7 @@ def validate_answer(
     plan: QueryPlan | None = None,
     config: ResumeQAConfig | None = None,
 ) -> ValidationResult:
-    """校验最终答案并返回校验结果。"""
+    """按固定顺序校验最终答案，并返回 graph route 使用的 ValidationResult。"""
     cfg = config or load_config()
     issues: List[ValidationIssue] = []
     warning_issues: List[ValidationIssue] = []

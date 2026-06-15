@@ -11,7 +11,7 @@ from resume_query_ai_qa.core.rules.context_resolver import candidate_ids_for_con
 from resume_query_ai_qa.core.rules.execution_policy_rules import scenario_for_intent
 from resume_query_ai_qa.core.schemas import RouterOutput, ToolCallSpec
 
-from .query_args import candidate_reference_text, filter_args, ranking_filter_args, ranking_target_text, sanitize_session_context, tool_query
+from .query_args import candidate_reference_text, filter_args, preference_filter_args, preference_recall_query, ranking_filter_args, ranking_target_text, sanitize_session_context, tool_query
 from .refs import structured_arg_ref
 from .source_policy import last_output_key
 
@@ -171,16 +171,24 @@ def _structured_filter(context: BuildContext) -> ToolCallSpec | None:
             arguments=args,
             output_key="candidate_pool",
         )
+    args = filter_args(context.question, context.router_output, context.session_context)
+    if not args:
+        args = preference_filter_args(context.question, context.router_output, context.session_context)
+    if not args:
+        return None
     return ToolCallSpec(
         name=context.tool_name,
-        arguments=filter_args(context.question, context.router_output, context.session_context),
+        arguments=args,
         output_key="candidate_pool",
     )
 
 
-def _semantic_search(context: BuildContext) -> ToolCallSpec:
+def _semantic_search(context: BuildContext) -> ToolCallSpec | None:
     """构建语义检索工具调用并返回。"""
-    return hybrid_source_call(context.query, context.router_output, context.session_context, config=context.config)
+    query = context.query or preference_recall_query(context.question, context.router_output)
+    if not query:
+        return None
+    return hybrid_source_call(query, context.router_output, context.session_context, config=context.config)
 
 
 def _resolve_reference(context: BuildContext) -> ToolCallSpec:

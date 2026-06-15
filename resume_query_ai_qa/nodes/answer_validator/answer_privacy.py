@@ -1,4 +1,14 @@
-"""Answer privacy checks."""
+"""Answer privacy checks.
+
+这个文件负责什么：
+  直接扫描最终 answer 文本，拦截默认不应展示的联系方式和敏感属性。
+
+应该从哪个函数读起：
+  validate_answer_contact()。
+
+不会负责什么：
+  不判断候选人是否适合展示隐私信息；是否允许展示 contact 只看工具结果和 YAML。
+"""
 
 from __future__ import annotations
 
@@ -15,7 +25,7 @@ def validate_answer_contact(
     tool_results: List[ToolResult],
     config: ResumeQAConfig,
 ) -> List[ValidationIssue]:
-    """校验答案是否泄露联系方式并返回错误列表。"""
+    """按 validation.yaml.privacy 扫描 email、phone、wechat 和敏感属性。"""
     privacy = dict(config.validation.get("privacy", {}) or {})
     if not privacy.get("hide_contact_by_default", True):
         return []
@@ -37,7 +47,7 @@ def validate_answer_contact(
 
 
 def _contact_explicitly_allowed(tool_results: List[ToolResult]) -> bool:
-    """获取contactexplicitly允许项并返回。"""
+    """如果 profile 工具明确返回 contact_hidden=false，则允许展示联系方式。"""
     for result in tool_results:
         if result.tool_name == "get_candidate_profile_intro" and result.ok and isinstance(result.data, dict):
             if not result.data.get("contact_hidden", True) and result.data.get("contact"):
@@ -46,7 +56,7 @@ def _contact_explicitly_allowed(tool_results: List[ToolResult]) -> bool:
 
 
 def _strip_date_ranges(text: str) -> str:
-    """移除dateranges并返回。"""
+    """移除日期范围，避免把工作年月误判成 phone-like 文本。"""
     patterns = [
         r"(?:19|20)\d{2}[-./年](?:0?[1-9]|1[0-2])?\s*(?:-|—|至|到|~|～)\s*(?:(?:19|20)\d{2}[-./年](?:0?[1-9]|1[0-2])?|至今|present|now|current)",
         r"(?:19|20)\d{2}\s*(?:-|—|至|到|~|～)\s*(?:(?:19|20)\d{2}|至今|present|now|current)",
@@ -58,7 +68,7 @@ def _strip_date_ranges(text: str) -> str:
 
 
 def _sensitive_attribute_hits(text: str, privacy: dict) -> List[str]:
-    """获取敏感attributehits并返回。"""
+    """返回最终答案文本中命中的敏感属性 key。"""
     configured = [str(item).strip() for item in list(privacy.get("sensitive_attributes", []) or []) if str(item).strip()]
     aliases = dict(privacy.get("sensitive_attribute_aliases", {}) or {})
     hits: List[str] = []

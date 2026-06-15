@@ -51,6 +51,8 @@ out_of_scope:
 
 signals:
   discovery_terms: ["谁有", "哪些人有", "谁具备", "哪些候选人有", "who has"]
+  collection_request_terms: ["都有谁", "哪些人", "候选人", "名单", "有哪些", "哪些候选人", "who", "which candidates", "list", "names"]
+  per_person_terms: ["每个人", "每个人的", "每位", "每位候选人", "各自", "分别", "所有人", "这些人", "这些候选人", "大家"]
   project_terms: ["列举", "列出", "项目", "项目经历", "项目经验", "project"]
   experience_terms: ["经验", "经历", "背景", "experience"]
   profile_terms: ["介绍", "个人信息", "个人经历", "工作经历", "经历", "背景", "信息", "资料", "展示", "显示", "查看", "看下", "看一下", "introduce", "profile", "personal info", "background", "experience", "work history", "show", "display", "view", "tell me about"]
@@ -99,6 +101,7 @@ intent_rules:
 compound_rules:
   count_terms: ["多少", "几个", "总数", "how many", "count", "number of", "total"]
   list_terms: ["都有谁", "有哪些", "名单", "列出", "who", "which candidates", "list", "names"]
+  per_person_terms: ["每个人", "每个人的", "每位", "每位候选人", "各自", "分别"]
   ranking_terms: ["排序", "排名", "适合", "谁更好", "谁比较好", "谁更强", "谁最强", "谁适合", "谁更适合", "最适合", "推荐谁", "推荐候选人", "rank", "ranking", "better", "stronger", "best", "recommend", "sort"]
   evidence_terms: ["体现在哪里", "体现在哪", "证据", "依据", "理由", "原因", "项目里", "哪里体现", "evidence", "prove", "basis", "reason"]
 

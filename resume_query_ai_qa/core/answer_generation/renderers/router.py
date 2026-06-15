@@ -11,7 +11,7 @@ from typing import Any
 
 from resume_query_ai_qa.core.schemas import AggregatedAnswer
 
-from .candidate_set import render_candidate_set
+from .candidate_set import render_candidate_set, render_scoped_list_evidence
 from .common import with_layout_warning
 from .comparison import render_comparison
 from .decision import render_decision
@@ -23,7 +23,11 @@ from .profile import render_profile_or_fact
 def render_rule_answer(query_frame: dict[str, Any], layout_name: str, layout_config: dict[str, Any], context: dict[str, Any]) -> AggregatedAnswer:
     """渲染规则答案并返回。"""
     task_type = str(query_frame.get("task_type") or "")
-    if task_type == "boundary_answer" or layout_name == "boundary":
+    intents = set(query_frame.get("intents") or [])
+    if {"candidate_list", "evidence_question"} <= intents and context.get("candidates") is not None and "search_candidate_evidence" in set(query_frame.get("successful_tools") or []):
+        answer = render_scoped_list_evidence(query_frame, context)
+        layout_name = "scoped_list_evidence"
+    elif task_type == "boundary_answer" or layout_name == "boundary":
         answer = render_boundary()
     elif task_type == "candidate_comparison_answer" or layout_name == "comparison":
         answer = render_comparison(context)

@@ -1,4 +1,18 @@
-"""YAML-driven SemanticPlan construction and normalization."""
+"""YAML-driven SemanticPlan construction and normalization.
+
+这个文件负责什么：
+- 根据 RouterOutput + YAML policy 生成确定性的 SemanticPlan。
+- 将 LLM SemanticPlan draft 重新收口到 RouterOutput/YAML 权威边界。
+
+应该从哪个函数读起：
+- semantic_plan_from_router
+- semantic_step_from_config
+- normalize_semantic_plan
+
+不会负责什么：
+- 不决定 planner 是否运行，那是 execution_policy/graph 的职责。
+- 不生成 ToolCallSpec，不绑定 arguments/ref/output_key。
+"""
 
 from __future__ import annotations
 
@@ -12,7 +26,11 @@ def semantic_plan_from_router(
     decision: ExecutionDecision | None = None,
     config: ResumeQAConfig | None = None,
 ) -> SemanticPlan:
-    """根据路由输出与 YAML 策略构建确定性的语义计划。"""
+    """根据路由输出与 YAML 策略构建确定性的语义计划。
+
+    compound 使用 sub_intent_candidates 生成多个 step；普通 intent 只生成
+    一个 step。这里不调用 LLM，因此也是 LLM fallback 的稳定路径。
+    """
     cfg = config or load_config()
     intents = router_output.sub_intent_candidates if router_output.intent == "compound" else [router_output.intent]
     return SemanticPlan(
@@ -35,7 +53,11 @@ def normalize_semantic_plan(
     decision: ExecutionDecision,
     config: ResumeQAConfig | None = None,
 ) -> SemanticPlan:
-    """将大模型草稿与路由输出对齐，并合并 YAML 策略提示。"""
+    """将大模型草稿与路由输出对齐，并合并 YAML 策略提示。
+
+    RouterOutput 是 intent、conditions、context 的权威来源。LLM 可以补充
+    当前 scenario 允许的 optional needs 和 tool hints，但不能改变主结构。
+    """
     cfg = config or load_config()
     intents = router_output.sub_intent_candidates if router_output.intent == "compound" else [router_output.intent]
     existing = {step.intent: step for step in semantic_plan.steps}
@@ -83,7 +105,11 @@ def semantic_step_from_config(
     decision: ExecutionDecision | None,
     config: ResumeQAConfig,
 ) -> SemanticStep:
-    """构建单个语义步骤，避免编写意图专属的 Python 分支。"""
+    """构建单个语义步骤，避免编写意图专属的 Python 分支。
+
+    每个 step 的 scenario、needs、requires flags、tool hints 都从
+    RouterOutput 与 YAML 查询方法组合得到；这里只生成语义计划，不生成工具参数。
+    """
     scenario = scenario_for_intent(router_output, intent)
     defaults = config.semantic_defaults_for_intent(intent, scenario)
     hints = config.preferred_tool_hints_for_scenario(intent, scenario)
@@ -118,12 +144,12 @@ def semantic_step_from_config(
 
 
 def _dedupe(values: list[str]) -> list[str]:
-    """去重结果并返回。"""
+    """对 needs/tool hint 名称去重并保持原顺序。"""
     return list(dict.fromkeys(str(value) for value in values if str(value).strip()))
 
 
 def _dedupe_tool_hints(hints: list[ToolHint]) -> list[ToolHint]:
-    """去重工具工具建议集合并返回。"""
+    """按工具名对 ToolHint 去重并保持原顺序。"""
     output: list[ToolHint] = []
     seen: set[str] = set()
     for hint in hints:
@@ -135,7 +161,7 @@ def _dedupe_tool_hints(hints: list[ToolHint]) -> list[ToolHint]:
 
 
 def _normalize_llm_tool_hint(hint: ToolHint, scenario: str) -> ToolHint:
-    """标准化大模型工具工具建议并返回。"""
+    """标准化 LLM tool hint 的置信度、来源和 scenario。"""
     return hint.model_copy(
         update={
             "confidence": min(1.0, max(0.0, float(hint.confidence))),

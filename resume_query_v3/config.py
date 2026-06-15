@@ -4,19 +4,28 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-from dotenv import load_dotenv
+from resume_query_common.embedding_config import get_resume_embedding_config
+from resume_query_common.env import load_repo_env, repo_root
 
-load_dotenv()
+load_repo_env()
 
 
 def get_config() -> Dict[str, Any]:
     app_root = Path(__file__).resolve().parent
+    root = repo_root()
+    data_root_raw = os.getenv("RESUME_DATA_ROOT", "").strip()
+    data_root = Path(data_root_raw).expanduser().resolve() if data_root_raw else None
+    resume_dir = data_root / "resume" if data_root else root / "resume"
+    data_dir = data_root / "resume_query_v3" / "data" if data_root else app_root / "data"
     taxonomy_dir = app_root.parent / "shared_taxonomy"
+    embedding = get_resume_embedding_config()
     openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
     chat_provider = os.getenv("RESUME_V3_CHAT_PROVIDER", "").strip().lower() or ("openai" if openai_api_key else "ollama")
     return {
         "paths": {
+            "repo_root": root,
             "app_root": app_root,
+            "resume_dir": resume_dir,
             "configs_dir": app_root / "configs",
             "section_aliases_file": app_root / "configs" / "section_aliases.yaml",
             "routing_file": app_root / "configs" / "routing.yaml",
@@ -30,11 +39,11 @@ def get_config() -> Dict[str, Any]:
             "benchmark_reports_dir": app_root / "benchmarks" / "reports",
             "logs_latest_dir": app_root / "logs" / "latest",
             "logs_history_dir": app_root / "logs" / "history",
-            "data_dir": app_root / "data",
-            "jobs_db": app_root / "data" / "structured" / "pipeline_jobs.db",
-            "structured_store_file": app_root / "data" / "structured" / "structured_store.db",
-            "vector_payload_file": app_root / "data" / "vector" / "vector_payload.json",
-            "chroma_dir": app_root / "data" / "vector" / "chroma_store",
+            "data_dir": data_dir,
+            "jobs_db": data_dir / "structured" / "pipeline_jobs.db",
+            "structured_store_file": data_dir / "structured" / "structured_store.db",
+            "vector_payload_file": data_dir / "vector" / "vector_payload.json",
+            "chroma_dir": data_dir / "vector" / "chroma_store",
             "last_prompt_file": app_root / "logs" / "latest" / "last_llm_prompt.txt",
             "last_response_file": app_root / "logs" / "latest" / "last_llm_response.txt",
             "last_run_file": app_root / "logs" / "latest" / "last_run.json",
@@ -47,11 +56,16 @@ def get_config() -> Dict[str, Any]:
             "prompt_max_chunk_candidates": int(os.getenv("RESUME_V3_PROMPT_MAX_CHUNKS", "10")),
             "default_file": "",
         },
+        "upload": {
+            "resume_upload_dir": Path(os.getenv("RESUME_UPLOAD_DIR", resume_dir / "uploads")),
+            "max_upload_bytes": int(os.getenv("RESUME_UPLOAD_MAX_MB", "20")) * 1024 * 1024,
+            "allowed_extensions": [".pdf", ".docx", ".doc"],
+        },
         "model": {
             "chat_provider": chat_provider,
             "openai_model": os.getenv("RESUME_V3_OPENAI_MODEL", "gpt-4.1-mini").strip(),
             "llm_model": os.getenv("RESUME_V3_OLLAMA_MODEL", "llama3:latest").strip(),
-            "embedding_provider": os.getenv("RESUME_V3_EMBED_PROVIDER", "ollama").strip(),
+            "embedding_provider": embedding["provider"],
             "openai_embedding_model": os.getenv("RESUME_V3_OPENAI_EMBED_MODEL", "text-embedding-3-small").strip(),
             "ollama_embedding_model": os.getenv("RESUME_V3_EMBED_MODEL", "bge-m3").strip(),
         },
@@ -69,7 +83,8 @@ def get_config() -> Dict[str, Any]:
         "storage": {
             "structured_backend": os.getenv("RESUME_V3_STRUCTURED_BACKEND", "sqlite").strip(),
             "vector_backend": os.getenv("RESUME_V3_VECTOR_BACKEND", "chroma").strip(),
-            "chroma_collection": os.getenv("RESUME_V3_CHROMA_COLLECTION", "resume_v3_project_chunks").strip(),
+            "chroma_collection": embedding["chroma_collection"],
+            "embedding_dimension": embedding["dimension"],
         },
         "logging": {
             "verbose_third_party": os.getenv("RESUME_V3_VERBOSE_THIRD_PARTY", "").strip().lower() in {"1", "true", "yes", "on"},

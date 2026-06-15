@@ -1,8 +1,14 @@
 """Answer rewrite orchestration.
 
-This node repairs answers after answer_validator reports structured issues. It
-does not call tools or add facts; deterministic repair rebuilds from existing
-tool results, and LLM rewrite remains constrained by aggregator grounding.
+这个文件负责什么：
+  在 answer_validator 报错后，决定是请求 rule_answer_fallback，还是生成一个
+  LLM rewrite candidate。
+
+应该从哪个函数读起：
+  rewrite_answer()。
+
+不会负责什么：
+  不调用工具、不新增事实、不直接放行答案；rewrite 后必须回 answer_validator 复检。
 """
 
 from __future__ import annotations
@@ -30,7 +36,7 @@ def rewrite_answer(
     execution_decision: ExecutionDecision | None = None,
     router_output: RouterOutput | None = None,
 ) -> tuple[AggregatedAnswer | None, dict[str, Any]]:
-    """实现节点内的重写答案处理；输入来自当前节点契约，输出不越过节点职责边界。"""
+    """根据 validator issues 生成 rewrite candidate，或返回 None 请求 rule fallback。"""
     policy = classify_answer_repair_policy(answer_issues)
     if previous_answer is None:
         meta = _decision_meta("answer_rewrite", "fallback_request", "missing_previous_answer")
@@ -57,7 +63,7 @@ def rewrite_answer(
 
 
 def _issue_prompts(answer_errors: list[str], answer_issues: list[ValidationIssue]) -> list[str]:
-    """实现节点内的issueprompts处理；输入来自当前节点契约，输出不越过节点职责边界。"""
+    """把结构化 ValidationIssue 压成 LLM rewrite prompt 可读的错误列表。"""
     if not answer_issues:
         return answer_errors
     return [
@@ -68,7 +74,7 @@ def _issue_prompts(answer_errors: list[str], answer_issues: list[ValidationIssue
 
 
 def _decision_meta(node: str, engine: str, fallback_reason: str = "", config: ResumeQAConfig | None = None) -> dict[str, Any]:
-    """实现节点内的决策元信息处理；输入来自当前节点契约，输出不越过节点职责边界。"""
+    """构造 rewrite/fallback 决策 meta，供 graph trace 和 diagnosis 使用。"""
     meta: dict[str, Any] = {"node": node, "engine": engine, "fallback_reason": fallback_reason}
     if config is not None and engine in {"llm", "rule_fallback"}:
         meta["llm"] = llm_identity(config)

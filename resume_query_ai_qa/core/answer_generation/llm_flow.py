@@ -1,10 +1,18 @@
-"""答案生成中的 LLM fill/rewrite 受控流程。"""
+"""Controlled LLM fill/rewrite flow for answer generation.
+
+这个文件负责什么：
+  让 LLM 基于 payload 生成答案文本，并在事实漂移或 layout 违约时回落 grounded answer。
+
+应该从哪个函数读起：
+  run_fill_flow()；answer_rewrite 路径再读 run_rewrite_flow()。
+
+不会负责什么：
+  不构建 prompt payload，不从 ToolResult 收集事实，不直接修改 graph state。
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-
 from resume_query_ai_qa.core.config import ResumeQAConfig
 from resume_query_ai_qa.core.llm import is_llm_enabled
 from resume_query_ai_qa.core.schemas import AggregatedAnswer
@@ -35,7 +43,7 @@ class LLMFlowResult:
 
 
 def run_fill_flow(inputs: AnswerInputs, grounded: AggregatedAnswer, config: ResumeQAConfig, *, use_llm: bool) -> LLMFlowResult:
-    """执行 aggregator 的 LLM fill；失败或漂移时回到 grounded 规则答案。"""
+    """让 LLM 根据 query/framework/tool facts 生成答案文本；不合格时回落 grounded。"""
     answer = grounded
     engine = "rule"
     fallback_reason = ""

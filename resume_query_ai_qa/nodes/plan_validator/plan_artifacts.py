@@ -1,4 +1,12 @@
-"""Plan artifact source and lineage contract checks."""
+"""Plan artifact source and lineage contract checks.
+
+这个文件负责什么：
+- 检查 QueryPlan 中候选人集合、排序结果、证据集合的来源和消费链。
+- 校验 compiler_templates.yaml 中的 artifact_contracts。
+
+应该从哪个函数读起：
+- validate_artifact_source_contract
+"""
 
 from __future__ import annotations
 
@@ -15,7 +23,7 @@ from .plan_semantics import is_hard_domain_condition, router_looks_like_open_rec
 
 
 def validate_artifact_source_contract(plan: QueryPlan, router_output: RouterOutput | None = None, config: ResumeQAConfig | None = None) -> List[str]:
-    """校验计划产物来源和消费链并返回错误列表。"""
+    """校验计划产物来源、canonical candidate source 和消费链。"""
     errors: List[str] = []
     calls = [call for _intent, items in _intent_calls(plan) for call in items]
     candidate_source_tools = set(config.tools_with_role("candidate_source")) if config else set()
@@ -97,7 +105,7 @@ def validate_artifact_source_contract(plan: QueryPlan, router_output: RouterOutp
 
 
 def _required_candidate_scope(router_output: RouterOutput | None) -> dict:
-    """获取必需候选人范围并返回。"""
+    """从 RouterOutput.normalized_conditions 推导候选来源必须满足的 scope。"""
     if router_output is None:
         return {}
     scope: dict[str, object] = {}
@@ -120,7 +128,7 @@ def _required_candidate_scope(router_output: RouterOutput | None) -> dict:
 
 
 def _source_scope_signature(call: ToolCallSpec) -> str:
-    """获取来源范围signature并返回。"""
+    """为 candidate source 工具调用生成 scope 签名，用于发现多来源冲突。"""
     if call.name == "list_all_candidates":
         return "all"
     args = {

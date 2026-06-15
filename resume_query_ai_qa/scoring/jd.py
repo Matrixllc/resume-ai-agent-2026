@@ -10,7 +10,6 @@ deterministic，确保同一批输入得到同一排序。
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from resume_query_ai_qa.core.config import ResumeQAConfig, load_config
@@ -22,13 +21,13 @@ def load_default_jd_criteria(
     job_text: str | None = None,
     config: ResumeQAConfig | None = None,
 ) -> JDScoringCriteria:
-    """Load a matching criteria section from the repo-level JD.md.
+    """Load a matching criteria section from the scoring JD standards file.
 
-    JD.md 是标准库，不再是单一岗位 JD。传入岗位文本时只解析命中的
-    section；没有命中时回退“通用简历标准”。
+    scoring/JD.md 是标准库，不再是单一岗位 JD。传入岗位文本时只解析
+    命中的 section；没有命中时回退“通用简历标准”。
     """
     cfg = config or load_config()
-    relative = str(cfg.jd_scoring.get("default_jd_path", "JD.md") or "JD.md")
+    relative = str(cfg.jd_scoring.get("default_jd_path", "resume_query_ai_qa/scoring/JD.md") or "resume_query_ai_qa/scoring/JD.md")
     jd_path = cfg.app_root.parent / relative
     text = jd_path.read_text(encoding="utf-8") if jd_path.exists() else ""
     section_title, text = select_jd_standard_section(text, " ".join(str(item or "") for item in [target_role, job_text]))
@@ -198,8 +197,6 @@ def score_candidate_material_for_jd(
     分数只是排序工具的中间结果，不是最终招聘结论。每个加分项尽量保留
     evidence_refs，方便答案阶段解释“为什么是这个分数”。
     """
-    _cfg = config or load_config()
-
     parsed = _criteria(criteria)
     if _is_general_resume_criteria(parsed):
         return _score_candidate_for_general_resume(brief, evidence_refs, parsed)
@@ -269,7 +266,7 @@ def rank_candidates(scored_candidates: List[CandidateScore] | List[Dict[str, Any
 
 
 def _is_general_resume_criteria(criteria: JDScoringCriteria) -> bool:
-    """执行is通用简历标准评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """判断 criteria 是否表示“无明确 JD 的通用简历优先级”。"""
     return criteria.target_role in {"通用简历优先级", "通用简历标准"} or (
         criteria.source == "manual"
         and not criteria.required_domains
@@ -336,7 +333,7 @@ def _score_candidate_for_general_resume(
 
 
 def _ranking_key(item: CandidateScore) -> tuple:
-    """执行排序key评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """生成稳定排序 key，确保同分时也能得到可复现顺序。"""
     scores = item.dimension_scores or {}
     return (
         -item.total_score,
@@ -353,7 +350,7 @@ def _ranking_key(item: CandidateScore) -> tuple:
 
 
 def _tie_break_reason(winner: CandidateScore, runner_up: CandidateScore) -> str:
-    """执行tiebreak原因评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """第一、第二名总分相同时，给出当前排序的可解释 tie-break 原因。"""
     dimensions = [
         ("project_jd_evidence", "项目证据强度更高"),
         ("domain_match", "领域匹配更高"),
@@ -373,7 +370,7 @@ def _tie_break_reason(winner: CandidateScore, runner_up: CandidateScore) -> str:
 
 
 def _recommendation_reason(strengths: List[str], risks: List[str]) -> str:
-    """执行推荐原因评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """从 strengths / risks 中压缩出一句可展示的推荐理由。"""
     if strengths:
         return "；".join(strengths[:2])
     if risks:
@@ -382,14 +379,14 @@ def _recommendation_reason(strengths: List[str], risks: List[str]) -> str:
 
 
 def _criteria(value: JDScoringCriteria | Dict[str, Any]) -> JDScoringCriteria:
-    """执行标准评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """把 dict 或 Pydantic 对象统一转换为 JDScoringCriteria。"""
     if isinstance(value, JDScoringCriteria):
         return value
     return JDScoringCriteria.model_validate(value)
 
 
 def _dimension_overlap_score(required: List[str], actual: List[str], weight: float) -> tuple[float, List[str]]:
-    """执行dimension重合度评分评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """按 required 与 actual 的标准化重合度计算单个维度分数。"""
     if not required:
         return 0.0, []
     actual_keys = {_normalize_key(item) for item in actual}
@@ -400,7 +397,7 @@ def _dimension_overlap_score(required: List[str], actual: List[str], weight: flo
 
 
 def _project_evidence_score(terms: List[str], refs: List[EvidenceRef], weight: float) -> tuple[float, List[str]]:
-    """执行项目证据评分评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """检查 evidence 文本是否命中 JD 词项，并计算项目证据维度分数。"""
     if not terms:
         return 0.0, []
     matched: List[str] = []
@@ -440,7 +437,7 @@ def _work_experience_years_score(resume_identity: str, terms: List[str], weight:
 
 
 def _estimate_work_years(work_items: Iterable[Any]) -> float:
-    """执行estimate工作经历年限评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """从工作经历日期文本中保守估算年限；无法识别时返回 0。"""
     total_months = 0
     for item in work_items:
         text = _work_item_date_text(item)
@@ -454,7 +451,7 @@ def _estimate_work_years(work_items: Iterable[Any]) -> float:
 
 
 def _work_item_date_text(item: Any) -> str:
-    """执行工作经历条目日期文本评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """从工作经历对象中提取日期/周期相关文本，供年限估算使用。"""
     if hasattr(item, "model_dump"):
         item = item.model_dump()
     if isinstance(item, dict):
@@ -470,7 +467,7 @@ def _work_item_date_text(item: Any) -> str:
 
 
 def _communication_score(text: str, weight: float) -> float:
-    """执行沟通能力评分评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """命中语言、沟通、文档等信号时给出沟通/语言维度分。"""
     signals = ["英语", "english", "沟通", "文档", "海外", "toefl", "gre"]
     return weight if _matches_any(text, signals) else 0.0
 
@@ -481,7 +478,7 @@ def _risk_penalty(
     refs: List[EvidenceRef],
     weight: float,
 ) -> tuple[float, List[str]]:
-    """执行风险扣分评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """根据缺少领域、技能或项目证据等情况计算风险扣分。"""
     risks: List[str] = []
     if criteria.required_domains and not brief.domains:
         risks.append("缺少领域标签")
@@ -497,7 +494,7 @@ def _risk_penalty(
 
 
 def _missing_info(criteria: JDScoringCriteria, brief: Any) -> List[str]:
-    """执行缺失信息评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """列出影响评分可信度的缺失字段。"""
     missing: List[str] = []
     if criteria.required_domains and not brief.domains:
         missing.append("domain")
@@ -509,7 +506,7 @@ def _missing_info(criteria: JDScoringCriteria, brief: Any) -> List[str]:
 
 
 def _candidate_text(brief: Any, refs: List[EvidenceRef]) -> str:
-    """执行候选人文本评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """拼接候选人 brief 和 evidence，供轻量信号匹配使用。"""
     return "\n".join(
         [
             brief.name,
@@ -523,7 +520,7 @@ def _candidate_text(brief: Any, refs: List[EvidenceRef]) -> str:
 
 
 def _guess_target_role(text: str) -> str:
-    """执行guess目标岗位评分规则；仅基于输入事实计算确定性结果，不调用模型或工具。"""
+    """从 JD 文本中保守判断是否存在目标岗位描述。"""
     for marker in ["岗位", "职位", "目标"]:
         if marker in text:
             return "JD 目标岗位"

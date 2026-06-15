@@ -1,87 +1,161 @@
 # Execution Policy Node
 
-## 职责
+一句话：`execution_policy` 把已经标准化的 `RouterOutput` 收敛成 `ExecutionDecision`，决定本轮走稳定 workflow template，还是走通用 planner。
 
-`execution_policy` 是执行路径调度层。它读取 question 和标准化后的 `RouterOutput`，
-产出 `ExecutionDecision`，决定本轮走 `workflow_template` 还是
-`generic_tool_binding`。Scenario 的 canonical 来源是 `RouterOutput.scenario_decisions`；
-本节点只读取和透传，不重新判定。
+## 架构位置
 
-## 输入
+```text
+user question
+-> router
+-> condition_normalizer
+-> execution_policy
+   -> template: plan_compiler
+   -> generic: planner -> plan_compiler
+-> plan_validator
+-> executor
+-> aggregator / answer_rewrite
+```
 
-| 输入 | 来源 | 用途 |
+`execution_policy` 位于 `condition_normalizer` 之后。它已经能读到 router 的 intent/scenario，也能读到标准化后的 conditions，所以可以判断当前问题是否命中一个稳定 workflow。
+
+## 节点目标
+
+它做三件事：
+
+- 读取 `RouterOutput.intent`、`sub_intent_candidates`、`scenario_decisions` 和 `normalized_conditions`。
+- 用 `compiler_templates.yaml.workflows.*.match` 判断是否命中稳定 workflow。
+- 输出 `ExecutionDecision`，给 graph 决定下一跳。
+
+它不做这些事：
+
+- 不重新判断 intent。
+- 不重新生成 scenario。
+- 不生成 `SemanticPlan` 或 `QueryPlan`。
+- 不拼工具参数。
+- 不调用 tools。
+- 不回答用户问题。
+
+## 输入 / 输出
+
+输入：
+
+| 字段 | 来源 | 用途 |
 |---|---|---|
-| `question` | 用户请求 | trace reason 和 workflow 匹配上下文。 |
-| `RouterOutput.intent` | router | 确定需要调度的 intent。 |
-| `sub_intent_candidates` | router | compound 中逐子 intent 调度。 |
-| `scenario_decisions` | router | 读取每个 intent 的执行协议。 |
-| `normalized_conditions` | condition normalizer | workflow scope 匹配。 |
-| compiler templates | YAML | 判断是否命中稳定 workflow。 |
+| `question` | 用户问题 | 只用于透传、trace、少量 rule fallback 场景函数。 |
+| `RouterOutput.intent` | router/finalizer | workflow 匹配的主 intent。 |
+| `RouterOutput.sub_intent_candidates` | router/finalizer | compound workflow 检查必需子 intent。 |
+| `RouterOutput.scenario_decisions` | router/finalizer | workflow 匹配 scenario；generic 路径选择 planner。 |
+| `RouterOutput.normalized_conditions` | condition_normalizer | 判断 `requires_scope` 是否成立。 |
+| `RouterOutput.context_policy` | router/guard | 上下文候选人池也可作为 scope。 |
+| `ResumeQAConfig.compiler_templates` | `compiler_templates.yaml` | workflow 匹配表。 |
+| `ResumeQAConfig.compiler_flags()` | `.env` / 默认值 | 决定 template/generic/hybrid 模式。 |
 
-## 输出
+输出：
 
-| 输出 | 用途 |
-|---|---|
-| `ExecutionDecision.compiler` | graph 条件路由到 planner 或 plan_compiler。 |
-| `ExecutionDecision.planner` | generic 路径使用 rule/LLM planner。 |
-| `ExecutionDecision.workflow_name` | template 路径命中的 workflow。 |
-| `ExecutionDecision.scenarios` | compiler/validator 使用的执行协议。 |
-| `ExecutionDecision.reason` | trace 和 diagnosis 使用。 |
+| 字段 | 说明 | 给谁用 |
+|---|---|---|
+| `compiler` | `workflow_template` 或 `generic_tool_binding` | graph 条件路由。 |
+| `planner` | generic 路径使用 `rule` 或 `llm` planner | planner 节点。 |
+| `workflow_name` | 命中的 workflow 名称 | plan_compiler template 路径。 |
+| `scenarios` | 每个 intent 对应的 scenario | planner/compiler/validator。 |
+| `reason` | 为什么走这条路径 | trace 和排查。 |
 
 ## 主流程
 
 ```text
-question + normalized RouterOutput
--> read RouterOutput.scenario_decisions
--> match_workflow(...)
+resolve_execution_policy
+-> resolve_execution_decision
+-> _router_intents
+-> scenario_for_intent
+-> compiler_flags
+-> match_workflow
+-> _workflow_matches
 -> ExecutionDecision
--> graph route: template 或 generic
+-> route_after_execution_policy
 ```
 
-## 失败 / Fallback
+graph 根据 `route_after_execution_policy` 返回值分流：
 
-`execution_policy` 本身不 repair。没有 workflow 命中时不是错误，会走 generic。
+```text
+compiler == workflow_template
+-> plan_compiler
 
-| 场景 | 行为 | Trace 字段 |
-|---|---|---|
-| workflow 命中 | route 到 `plan_compiler` | `route_events.reason=matched stable workflow:*` |
-| workflow 未命中 | route 到 `planner` | `route_events.reason=no stable workflow matched` |
-| open recall | `scenario=open_recall` | `ExecutionDecision.scenarios` |
-| hard filter | `scenario=hard_filter` | validator 会保持严格 source contract |
+compiler == generic_tool_binding
+-> planner
+```
 
-## Trace 字段
+## Workflow 怎么匹配
 
-- `execution_decision.compiler`
-- `execution_decision.workflow_name`
-- `execution_decision.scenarios`
-- `decision_steps[].summary=compiler=...`
-- `route_events[]`
+简单理解：
 
-## 边界：能做 / 不能做
+```text
+workflow.match 里写了什么，就检查什么；
+写了的条件全部通过，这个 workflow 才算命中；
+没有写的条件，不参与判断。
+```
 
-能做：
+当前支持的匹配条件：
 
-- 读取并透传 router-owned scenario。
-- 判断 template/generic。
-- 给 graph 返回 route 标签。
+| match 字段 | 判断方式 |
+|---|---|
+| `intent` | 必须等于 `RouterOutput.intent`。 |
+| `intents` | `RouterOutput.intent` 必须在列表里。 |
+| `required_sub_intents` | 列表里的子 intent 必须都在 `sub_intent_candidates` 里。 |
+| `scenarios` | 当前 scenarios 里至少一个命中列表。 |
+| `requires_scope` | 必须有明确筛选范围，或上下文候选人池。 |
 
-不能做：
+例如：
 
-- 不生成 `SemanticPlan` 或 `QueryPlan`。
-- 不重新判定 scenario。
-- 不拼工具参数。
-- 不调用 tools。
-- 不修复 plan。
+```text
+金融候选人有几个，谁最强，依据是什么？
+```
 
-## 扩展方式
+如果 router 产出：
 
-- 新稳定 workflow：更新 `compiler_templates.yaml`。
-- 新 scenario：更新 router/finalizer 规则、`scenarios.yaml`、tool policy 和 validator。
-- 新 open recall 词：更新 `router_rules.yaml`，代码只读配置。
+```text
+intent = compound
+sub_intent_candidates = [candidate_count, candidate_ranking, evidence_question]
+scenario = hard_filter / compare_rank / fact_check
+normalized_conditions = domain: 金融
+```
 
-## 验收 benchmark
+就能命中 `scoped_count_rank_evidence`：
+
+```yaml
+match:
+  intent: compound
+  required_sub_intents:
+    - candidate_count
+    - candidate_ranking
+    - evidence_question
+  requires_scope: true
+```
+
+因为 intent 对上、三个子 intent 都有，而且 `domain: 金融` 让 `requires_scope` 成立。
+
+## 准确性保障
+
+- Router/finalizer 先把 intent、scenario、requires flags 收口，本节点不重复理解自然语言。
+- `condition_normalizer` 先生成 `normalized_conditions`，本节点只用它判断 scope。
+- `compiler_templates.yaml` 用优先级排序，高优先级 workflow 先匹配。
+- 没有 workflow 命中不是错误，会自动走 generic planner。
+- compiler 模式由 `compiler_flags()` 统一校验，避免节点内部散落环境变量判断。
+
+## 文档阅读顺序
+
+```text
+1. README.md
+2. EXECUTION_FLOW.md
+3. YAML_USAGE.md
+4. execution_policy.py
+5. ../../core/rules/execution_policy_rules.py
+6. ../../configs/compiler_templates.yaml
+```
+
+## 验收命令
 
 ```bash
-.venv/bin/python resume_query_ai_qa/benchmarks/run_plan_contract_benchmark.py
-.venv/bin/python resume_query_ai_qa/benchmarks/run_plan_contract_benchmark.py
+./.venv/bin/python -m compileall -q resume_query_ai_qa/nodes/execution_policy resume_query_ai_qa/core/rules/execution_policy_rules.py
+./.venv/bin/python resume_query_ai_qa/benchmarks/run_policy_contract_benchmark.py
+./.venv/bin/python resume_query_ai_qa/benchmarks/run_plan_contract_benchmark.py
 ```

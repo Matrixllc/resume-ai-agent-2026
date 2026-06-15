@@ -57,12 +57,21 @@ def build_grounded_claims(context: dict[str, Any]) -> list[AnswerClaim]:
 def build_used_evidence_refs(context: dict[str, Any]) -> list[EvidenceRef]:
     """从聚合上下文提取最终引用的证据，跳过格式异常的单条证据。"""
     refs: list[EvidenceRef] = []
+    seen_ids: set[str] = set()
     for item in context.get("evidence") or []:
         try:
-            refs.append(EvidenceRef.model_validate(item))
+            ref = EvidenceRef.model_validate(item)
         except Exception:
             # 单条证据结构坏了不能进入答案引用，也不能阻断其他证据渲染。
             continue
+        evidence_id = str(ref.evidence_id or "").strip()
+        if evidence_id and evidence_id in seen_ids:
+            continue
+        if evidence_id:
+            seen_ids.add(evidence_id)
+        refs.append(ref)
+        if len(refs) >= 5:
+            break
     return refs[:5]
 
 

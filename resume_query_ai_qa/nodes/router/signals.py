@@ -42,6 +42,10 @@ def detect_router_signals(text: str, conditions: list[QueryCondition], config: R
         and explicit_candidate_match_count(text) >= 2
     ):
         context_policy = ContextPolicy(reason="当前问题已显式给出多个候选人；本句复数指代绑定到显式候选人，不依赖上一轮上下文。")
+    has_domain_scope = any(condition.type in {"domain", "major", "skill", "concept", "job_intent"} for condition in conditions)
+    has_collection_request = contains_any(text, terms(config, "signals", "collection_request_terms"))
+    has_per_person_request = contains_any(text, terms(config, "signals", "per_person_terms"))
+    has_project_request = contains_any(text, terms(config, "signals", "project_terms"))
     return RouterSignals(
         pair_compare=looks_like_pair_compare(text, config),
         candidate_reference=candidate_reference,
@@ -50,8 +54,14 @@ def detect_router_signals(text: str, conditions: list[QueryCondition], config: R
         context_pair_reference=context_policy.context_ref_type in {str(item) for item in list(resolution.get("pair_ref_types", []) or [])},
         context_pool_reference=context_policy.context_ref_type in {str(item) for item in list(resolution.get("pool_ref_types", []) or [])},
         discovery=contains_any(text, terms(config, "signals", "discovery_terms")),
-        project_listing=contains_any(text, terms(config, "signals", "project_terms")),
+        project_listing=has_project_request,
         evidence_locator=contains_any(text, terms(config, "intent_rules", "evidence_question", "trigger_any")),
+        domain_scope=has_domain_scope,
+        collection_request=has_collection_request,
+        per_person_request=has_per_person_request,
+        scoped_project_evidence_request=bool(
+            has_domain_scope and has_collection_request and has_per_person_request and has_project_request
+        ),
         single_candidate_fit=looks_like_single_candidate_fit_question(text, config),
         context_pool_priority=context_policy.context_ref_type == "candidate_pool"
         and looks_like_context_pool_priority_question(text, config),

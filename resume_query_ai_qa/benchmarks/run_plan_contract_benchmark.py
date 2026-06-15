@@ -54,6 +54,14 @@ def _safety_failures(case: dict, plan) -> list[str]:
         missing = sorted(required_tools - tools)
         if missing:
             failures.append(f"{case['id']}: required tools missing {missing}")
+    forbidden_tools = {str(item) for item in list(safety.get("forbidden_tools", []) or [])}
+    if forbidden_tools:
+        tools = {call.name for call in plan_calls(plan)}
+        used = sorted(forbidden_tools & tools)
+        if used:
+            failures.append(f"{case['id']}: forbidden tools used {used}")
+    if safety.get("candidate_evidence_ids_from_candidate_pool"):
+        failures.extend(_candidate_evidence_binding_failures(case, plan))
     forbidden_filter_args = dict(safety.get("forbidden_filter_args", {}) or {})
     required_filter_args = dict(safety.get("required_filter_args", {}) or {})
     if not forbidden_filter_args and not required_filter_args:
@@ -84,6 +92,21 @@ def _safety_failures(case: dict, plan) -> list[str]:
         missing = sorted(required - seen_required[str(key)])
         if missing:
             failures.append(f"{case['id']}: filter_candidates {key} missing required values {missing}")
+    return failures
+
+
+def _candidate_evidence_binding_failures(case: dict, plan) -> list[str]:
+    failures: list[str] = []
+    evidence_calls = [call for call in plan_calls(plan) if call.name == "search_candidate_evidence"]
+    if not evidence_calls:
+        return [f"{case['id']}: search_candidate_evidence missing"]
+    for call in evidence_calls:
+        candidate_ids = dict(call.arguments or {}).get("candidate_ids")
+        if not isinstance(candidate_ids, dict) or candidate_ids.get("$ref") != "candidate_pool":
+            failures.append(f"{case['id']}: search_candidate_evidence.candidate_ids not bound to candidate_pool: {candidate_ids}")
+            continue
+        if candidate_ids.get("path") != ["resume_identity"] or candidate_ids.get("map") is not True:
+            failures.append(f"{case['id']}: search_candidate_evidence.candidate_ids path/map invalid: {candidate_ids}")
     return failures
 
 

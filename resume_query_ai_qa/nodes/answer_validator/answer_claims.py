@@ -1,4 +1,15 @@
-"""Answer claim and evidence-reference checks."""
+"""Answer claim and evidence-reference checks.
+
+这个文件负责什么：
+  校验结构化 claims、evidence refs，以及 count/ranking 这类可从文本中稳定扫描的
+  answer.answer 事实。
+
+应该从哪个函数读起：
+  validate_claim_support()，再按 answer.py 中的调用顺序继续读。
+
+不会负责什么：
+  不做完整自然语言事实抽取；LLM answer 文本里的每一句事实不会在这里逐句核验。
+"""
 
 from __future__ import annotations
 
@@ -18,7 +29,7 @@ from .issues import issue
 
 
 def validate_claim_support(answer: AggregatedAnswer, tool_results: List[ToolResult]) -> List[ValidationIssue]:
-    """校验答案声明是否有事实支持并返回错误列表。"""
+    """检查每个非 other claim 是否指向本轮成功执行过的工具。"""
     issues: List[ValidationIssue] = []
     successful_tool_names = {item.tool_name for item in tool_results if item.ok}
     for claim in answer.claims:
@@ -31,7 +42,7 @@ def validate_claim_support(answer: AggregatedAnswer, tool_results: List[ToolResu
 
 
 def validate_answer_count(answer: AggregatedAnswer, tool_results: List[ToolResult], config: ResumeQAConfig) -> List[ValidationIssue]:
-    """校验答案中的候选人数并返回错误列表。"""
+    """用 count_candidates 校验 count claim，并有限扫描 answer 文本中的数量表达。"""
     count = _last_ok_data(tool_results, "count_candidates")
     if count is None:
         return []
@@ -57,7 +68,7 @@ def validate_answer_count(answer: AggregatedAnswer, tool_results: List[ToolResul
 
 
 def validate_answer_names(answer: AggregatedAnswer, tool_results: List[ToolResult]) -> List[ValidationIssue]:
-    """校验答案中的候选人姓名并返回错误列表。"""
+    """检查 name/profile claims 中的候选人是否来自本轮工具结果。"""
     candidate_names = _candidate_names_from_results(tool_results)
     if not candidate_names:
         return []
@@ -78,7 +89,7 @@ def validate_answer_ranking(
     config: ResumeQAConfig,
     plan: QueryPlan | None = None,
 ) -> List[ValidationIssue]:
-    """校验答案中的候选人排序并返回错误列表。"""
+    """用 rank_candidates 校验 ranking claims，并检查 answer 文本中的姓名顺序。"""
     ranked = _last_ok_data(tool_results, "rank_candidates")
     if not ranked:
         return []
@@ -117,7 +128,7 @@ def validate_answer_ranking(
 
 
 def validate_answer_evidence_refs(answer: AggregatedAnswer, tool_results: List[ToolResult]) -> List[ValidationIssue]:
-    """校验答案证据引用并返回错误列表。"""
+    """检查 used_evidence_refs 和 claim.evidence_ids 是否来自本轮 evidence 工具结果。"""
     allowed_ids = available_evidence_ids(tool_results)
     claim_ids = [
         evidence_id
@@ -141,7 +152,7 @@ def validate_required_structured_claims(
     tool_results: List[ToolResult],
     plan: QueryPlan | None,
 ) -> List[ValidationIssue]:
-    """校验必需的结构化声明并返回错误列表。"""
+    """根据 plan/tool_results 检查 count/name/ranking/comparison 等必需 claims。"""
     issues: List[ValidationIssue] = []
     claim_types = {claim.claim_type for claim in answer.claims}
     if _last_ok_data(tool_results, "count_candidates") is not None and "count" not in claim_types:
@@ -200,7 +211,7 @@ def _ranking_output_limit(plan: QueryPlan | None) -> int | None:
 
 
 def _ranking_answer_segment(answer_text: str, config: ResumeQAConfig) -> str:
-    """获取排序答案segment并返回。"""
+    """用 YAML markers 定位排序段；没有 marker 时返回全文。"""
     markers = [str(item) for item in list(dict(config.validation.get("answer", {}) or {}).get("ranking_segment_markers", []) or [])]
     starts = [answer_text.find(marker) for marker in markers if answer_text.find(marker) >= 0]
     if not starts:

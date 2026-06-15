@@ -1,4 +1,14 @@
-"""答案生成的确定性准备与 grounding 编排。"""
+"""Deterministic answer preparation and grounding orchestration.
+
+这个文件负责什么：
+  准备 LLM/rule 共同使用的 query_frame、layout、context、rule_draft 和 prompt payload。
+
+应该从哪个函数读起：
+  prepare_answer_inputs() -> render_grounded_answer() -> grounded_authority()。
+
+不会负责什么：
+  不调用 LLM，不调用工具，不改写 ToolResult。
+"""
 
 from __future__ import annotations
 
@@ -52,13 +62,13 @@ def prepare_answer_inputs(
 
 
 def render_grounded_answer(inputs: AnswerInputs) -> AggregatedAnswer:
-    """用规则 renderer 生成可信答案底稿，并统一补充 grounded claims/evidence。"""
+    """每次先生成 grounded rule answer；它既是 fallback，也是 claims/evidence 权威来源。"""
     rule_answer = render_rule_answer(inputs.query_frame, inputs.layout_name, inputs.layout_config, inputs.context)
     return grounded_authority(rule_answer, inputs.context, inputs.layout_name)
 
 
 def grounded_authority(answer: AggregatedAnswer, context: dict[str, Any], layout_name: str) -> AggregatedAnswer:
-    """把答案事实来源收口到工具 grounding；LLM 文本不能绕过这里新增事实。"""
+    """把 claims、used_evidence_refs、warnings 收口到 ToolResult 派生的 grounded context。"""
     warnings = [f"answer_layout:{layout_name}", "answer_layout_source:answer_layouts.yaml"]
     if "evidence.empty" in (context.get("empty_flags") or {}):
         warnings.append("empty_evidence:search_candidate_evidence_returned_no_refs")

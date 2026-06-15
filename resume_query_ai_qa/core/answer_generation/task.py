@@ -1,4 +1,14 @@
-"""YAML-driven QueryFrame classification for Aggregator."""
+"""YAML-driven QueryFrame classification for Aggregator.
+
+这个文件负责什么：
+  根据 QueryPlan、ToolResult、scenario 和 aggregator_tasks.yaml 判断回答任务类型。
+
+应该从哪个函数读起：
+  build_query_frame() -> classify_task_type() -> extract_slots()。
+
+不会负责什么：
+  不选 answer layout，不生成答案文本，不读取工具之外的事实。
+"""
 
 from __future__ import annotations
 
@@ -20,7 +30,7 @@ def build_query_frame(
     execution_decision: ExecutionDecision | None = None,
     router_output: RouterOutput | None = None,
 ) -> dict[str, Any]:
-    """构建查询查询框架并返回。"""
+    """构建 aggregator 的 QueryFrame，作为 layout 选择和 LLM payload 的任务描述。"""
     intents = _plan_intents(plan)
     scenarios = _scenarios_for_intents(intents, execution_decision, router_output)
     ok_tools = _successful_tools(tool_results)
@@ -43,7 +53,7 @@ def classify_task_type(
     ok_tools: set[str],
     config: ResumeQAConfig,
 ) -> dict[str, Any]:
-    """分类任务类型并返回。"""
+    """按 aggregator_tasks.yaml 的优先级规则匹配 task_type。"""
     rules = config.aggregator_task_rules()
     ordered = sorted(
         ((name, dict(rule or {})) for name, rule in rules.items() if isinstance(rule, dict)),

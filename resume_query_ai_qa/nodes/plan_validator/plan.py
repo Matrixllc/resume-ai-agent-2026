@@ -1,4 +1,17 @@
-"""Plan Validator entrypoints."""
+"""Plan validator entrypoints.
+
+这个文件负责什么：
+- 汇总所有 QueryPlan 合同检查。
+- 返回 graph 使用的 ValidationResult。
+
+应该从哪个函数读起：
+- validate_plan
+
+不会负责什么：
+- 不生成或修改 QueryPlan。
+- 不调用工具。
+- 不修复计划，修复由 plan_repair 负责。
+"""
 
 from __future__ import annotations
 
@@ -21,7 +34,11 @@ def validate_plan(
     router_output: RouterOutput | None = None,
     session_context: dict | None = None,
 ) -> ValidationResult:
-    """校验查询计划并返回校验结果。"""
+    """校验 QueryPlan 并返回 ValidationResult。
+
+    检查顺序是 structure -> boundaries -> artifacts -> semantics。
+    只要有错误，就返回 ok=False，并把错误交给 behavior_contract 分类。
+    """
     cfg = config or load_config()
     errors: List[str] = []
     warnings: List[str] = []

@@ -1,4 +1,14 @@
-"""Execution candidate lineage checks."""
+"""Execution candidate lineage checks.
+
+这个文件负责什么：
+  检查 profile / ranking / evidence 是否跑出了本轮 canonical candidate pool。
+
+应该从哪个函数读起：
+  validate_candidate_lineage()，再读 _canonical_candidate_ids()。
+
+不会负责什么：
+  不判断工具是否成功，不检查必需工具结果，不做执行修复。
+"""
 
 from __future__ import annotations
 
@@ -24,7 +34,7 @@ def validate_candidate_lineage(
     session_context: dict | None = None,
     config: ResumeQAConfig | None = None,
 ) -> List[str]:
-    """校验候选人结果依赖链并返回错误列表。"""
+    """检查上下文候选池、profile、ranking、evidence 的候选人 lineage 是否逃逸。"""
     errors: List[str] = []
     canonical_ids = _canonical_candidate_ids(plan, tool_results, config or load_config())
     resolved_ids = _resolved_candidate_ids(tool_results)
@@ -61,7 +71,7 @@ def validate_candidate_lineage(
 
 
 def _canonical_candidate_ids(plan: QueryPlan, tool_results: List[ToolResult], config: ResumeQAConfig) -> set[str]:
-    """获取规范候选人标识集合并返回。"""
+    """从 artifact binding 或 candidate_source 工具结果中推断权威候选人集合。"""
     bindings = [binding for binding in plan.artifact_bindings if binding.artifact_type == "candidate_collection"]
     accepted = bindings[0].accepted_producer if bindings else ""
     source_tools = set(config.tools_with_role("candidate_source")) - {"resolve_candidate_reference"}

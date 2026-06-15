@@ -102,7 +102,7 @@ def filter_candidates(
 
 
 def _structured_tags_by_candidate(candidate_ids: List[str]) -> Dict[str, Dict[str, set[str]]]:
-    """按候选人整理结构化标签集合并返回。"""
+    """从结构化标签库读取候选人的 domain/skill/concept 标签集合。"""
     reader = ResumeSqlReader(get_tools_config()["paths"]["structured_store_file"])
     output: Dict[str, Dict[str, set[str]]] = {}
     for row in reader.list_tags_for_candidates(candidate_ids):
@@ -122,12 +122,12 @@ def _structured_tags_by_candidate(candidate_ids: List[str]) -> Dict[str, Dict[st
 
 
 def _tag_matches_any(actual: set[str], expected: Iterable[str]) -> bool:
-    """判断标签是否匹配任一并返回布尔值。"""
+    """判断实际标签是否命中任意期望标签。"""
     return any(normalize_key(value) in actual for value in expected)
 
 
 def _tag_matches_all(actual: set[str], expected: Iterable[str]) -> bool:
-    """判断标签是否匹配全部并返回布尔值。"""
+    """判断实际标签是否覆盖全部期望标签。"""
     return all(normalize_key(value) in actual for value in expected)
 
 

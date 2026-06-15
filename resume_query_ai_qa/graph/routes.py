@@ -1,3 +1,16 @@
+"""Conditional edge decisions for the Query-AI graph.
+
+这个文件负责什么：
+  根据 validator/policy 节点写回的 state 字段选择下一跳，并记录 route trace。
+
+应该从哪个函数读起：
+  route_after_execution_policy_node() -> route_after_plan_validation()
+  -> route_after_execution_validation() -> route_after_answer_validation()。
+
+不会负责什么：
+  不重新理解问题，不修复 plan/result/answer；具体分类来自各 node 的 classify/policy。
+"""
+
 from __future__ import annotations
 
 from resume_query_ai_qa.nodes.execution_policy import route_after_execution_policy
@@ -10,7 +23,7 @@ from .utils import require_plan
 
 
 def route_after_execution_policy_node(state: _GraphState) -> str:
-    """根据执行策略选择模板编译或通用规划分支，不修改业务状态。"""
+    """根据 ExecutionDecision.compiler 选择 template 或 generic 路径。"""
     route = route_after_execution_policy(state["execution_decision"])
     record_route_decision(
         state["qa"],
@@ -23,7 +36,7 @@ def route_after_execution_policy_node(state: _GraphState) -> str:
 
 
 def route_after_plan_validation(state: _GraphState) -> str:
-    """根据当前校验结果和重试计数选择routeafter计划validation后续分支，不修改业务状态。"""
+    """根据 plan_validation_ok、plan repair 分类和重试次数选择下一跳。"""
     if state.get("plan_validation_ok"):
         record_route_decision(state["qa"], route_from="plan_validator", route_to="execute", reason="plan_validation_ok", config=state["config"])
         return "execute"
@@ -48,7 +61,7 @@ def route_after_plan_validation(state: _GraphState) -> str:
 
 
 def route_after_execution_validation(state: _GraphState) -> str:
-    """根据当前校验结果和重试计数选择routeafter执行validation后续分支，不修改业务状态。"""
+    """根据 execution_validation_ok、execution repair 分类和重试次数选择下一跳。"""
     if state.get("execution_validation_ok"):
         record_route_decision(state["qa"], route_from="execution_validator", route_to="aggregate", reason="execution_validation_ok", config=state["config"])
         return "aggregate"
@@ -74,7 +87,7 @@ def route_after_execution_validation(state: _GraphState) -> str:
 
 
 def route_after_answer_validation(state: _GraphState) -> str:
-    """根据当前校验结果和重试计数选择routeafter答案validation后续分支，不修改业务状态。"""
+    """根据 answer_validation_ok、fallback flag 和 rewrite 次数选择下一跳。"""
     if state.get("answer_validation_ok"):
         record_route_decision(state["qa"], route_from="answer_validator", route_to="final", reason="answer_validation_ok", config=state["config"])
         return "final"

@@ -1,7 +1,15 @@
 """Experimental LLM-backed QueryPlan repair.
 
-This capability is intentionally disabled by default. The graph reaches it
-only when validation.yaml enables plan_repair.llm_enabled.
+这个文件负责什么：
+- 在显式启用时，用 LLM 尝试修复 semantic 类 QueryPlan 错误。
+- 给 LLM prompt 暴露受限工具集合和工具参数签名。
+
+默认状态：
+- validation.yaml 中 plan_repair.llm_enabled=false。
+
+不会负责什么：
+- 不保证 LLM 产物直接可执行。
+- 修复后仍必须经过 structured refs、artifact bindings 和 plan_validator。
 """
 
 from __future__ import annotations
@@ -28,7 +36,7 @@ def repair_llm_plan(
     *,
     session_context: dict | None = None,
 ) -> QueryPlan:
-    """根据结构化校验问题执行修复llm计划修复，并保持原有安全边界和产物依赖。"""
+    """调用 LLM 生成修复后的 QueryPlan draft，并刷新 refs/artifacts。"""
     cfg = config or load_config()
     plan = invoke_structured(
         QueryPlan,
@@ -46,7 +54,7 @@ def repair_llm_plan(
 
 
 def allowed_tools_by_intent(router_output: RouterOutput, config: ResumeQAConfig) -> dict[str, list[str]]:
-    """根据结构化校验问题执行允许项工具by意图修复，并保持原有安全边界和产物依赖。"""
+    """按 intent/scenario 收集 LLM repair 可使用的工具白名单。"""
     intents = router_output.sub_intent_candidates if router_output.intent == "compound" else [router_output.intent]
     return {
         intent: [
@@ -60,7 +68,7 @@ def allowed_tools_by_intent(router_output: RouterOutput, config: ResumeQAConfig)
 
 
 def tool_specs() -> dict[str, Any]:
-    """根据结构化校验问题执行工具specs修复，并保持原有安全边界和产物依赖。"""
+    """从 tool registry 提取工具参数名，作为 LLM repair prompt 约束。"""
     return {
         name: {
             "parameters": [

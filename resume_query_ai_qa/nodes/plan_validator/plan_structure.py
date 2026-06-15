@@ -1,4 +1,14 @@
-"""Plan structure and tool protocol checks."""
+"""Plan structure and tool protocol checks.
+
+这个文件负责什么：
+- 检查 QueryPlan 的基础结构、工具协议和场景合同。
+- 校验 tool name、arguments、depends_on、$ref、allowed/forbidden tools。
+
+应该从哪个函数读起：
+- validate_plan_structure
+- validate_tool_dependencies
+- validate_tool_arguments
+"""
 
 from __future__ import annotations
 
@@ -23,7 +33,7 @@ def validate_plan_structure(
     *,
     router_output: RouterOutput | None = None,
 ) -> List[str]:
-    """校验计划结构和工具协议并返回错误列表。"""
+    """校验计划结构、工具白名单和参数协议。"""
     errors: List[str] = []
 
     if plan.intent == "compound":
@@ -71,7 +81,7 @@ def _is_context_candidate_source_call_allowed(call: ToolCallSpec, router_output:
 
 
 def validate_router_scenario_contract(router_output: RouterOutput, config: ResumeQAConfig) -> List[str]:
-    """校验路由场景合同并返回错误列表。"""
+    """校验 RouterOutput.scenario_decisions 是否符合 scenarios.yaml。"""
     intents = router_output.sub_intent_candidates if router_output.intent == "compound" else [router_output.intent]
     errors: List[str] = []
     for intent in intents:
@@ -90,7 +100,7 @@ def validate_router_scenario_contract(router_output: RouterOutput, config: Resum
 
 
 def validate_tool_arguments(call: ToolCallSpec) -> List[str]:
-    """校验工具参数与函数签名并返回错误列表。"""
+    """用 tool registry 中的函数签名校验 ToolCallSpec.arguments。"""
     registry = get_tool_registry()
     tool = registry.get(call.name)
     if tool is None:
@@ -116,7 +126,7 @@ def validate_tool_arguments(call: ToolCallSpec) -> List[str]:
 
 
 def validate_tool_dependencies(calls: List[ToolCallSpec], *, allow_duplicate_output_keys: bool = False) -> List[str]:
-    """校验工具调用依赖和参数引用并返回错误列表。"""
+    """校验 output_key、depends_on 和参数 $ref 的顺序关系。"""
     errors: List[str] = []
     available: set[str] = set()
     for index, call in enumerate(calls, start=1):

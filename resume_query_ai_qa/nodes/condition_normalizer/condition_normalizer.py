@@ -20,6 +20,7 @@ from resume_query_ai_qa.core.rules.condition_rules import (
     mark_preference_targets,
     normalize_conditions,
 )
+from resume_query_ai_qa.core.rules.candidate_mentions import COLLECTION_QUANTIFIER_TERMS
 from resume_query_ai_qa.nodes.router.signals import candidate_reference_conditions
 from resume_query_ai_qa.core.schemas import NormalizedCondition, QueryCondition, RouterOutput
 
@@ -51,12 +52,39 @@ def normalize_router_output(router_output: RouterOutput, question: str) -> Route
     normalized = mark_preference_targets(normalize_conditions(conditions), question)
     conditions = _drop_context_reference_candidate_names(conditions, router_output)
     normalized = _drop_context_reference_candidate_names(normalized, router_output)
+    conditions = _drop_collection_quantifier_candidate_names(conditions)
+    normalized = _drop_collection_quantifier_candidate_names(normalized)
     return router_output.model_copy(
         update={
             "conditions": conditions,
             "normalized_conditions": normalized,
         }
     )
+
+
+def _drop_collection_quantifier_candidate_names(
+    conditions: list[QueryCondition] | list[NormalizedCondition],
+) -> list[QueryCondition] | list[NormalizedCondition]:
+    """Drop per-person/list words that were mistaken as candidate names."""
+    return [
+        condition
+        for condition in conditions
+        if condition.type != "candidate_name" or not _is_collection_quantifier_candidate(condition)
+    ]
+
+
+def _is_collection_quantifier_candidate(condition: QueryCondition | NormalizedCondition) -> bool:
+    """Return true when a candidate_name value is only a collection quantifier."""
+    values = {
+        str(getattr(condition, "raw_value", "") or "").strip(),
+        str(getattr(condition, "normalized_value", "") or "").strip(),
+        str(getattr(condition, "evidence", "") or "").strip(),
+    }
+    values = {value for value in values if value}
+    if any(_contains_known_candidate_name(value) for value in values):
+        return False
+    quantifiers = {_normalize_candidate_quantifier(term) for term in COLLECTION_QUANTIFIER_TERMS}
+    return any(_normalize_candidate_quantifier(value) in quantifiers for value in values)
 
 
 def _merge_candidate_reference_conditions(conditions: list[QueryCondition], question: str) -> list[QueryCondition]:
@@ -133,3 +161,8 @@ def _contains_known_candidate_name(value: str) -> bool:
     from resume_query_ai_qa.core.data_access import list_known_candidate_names
 
     return any(name and name in value for name in list_known_candidate_names())
+
+
+def _normalize_candidate_quantifier(value: str) -> str:
+    """Normalize a collection quantifier candidate-name fragment."""
+    return value.strip(" ，,。；;:：?？的")

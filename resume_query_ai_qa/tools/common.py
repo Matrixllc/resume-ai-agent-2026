@@ -1,3 +1,16 @@
+"""Shared helper functions for read-only QA tools.
+
+这个文件负责什么：
+  候选人摘要转换、证据引用构造、文本匹配、taxonomy 扩展、向量检索 reader
+  等跨工具复用逻辑。
+
+应该从哪个方向读：
+  先看调用它的具体工具文件，再回到这里看对应 helper。
+
+不会负责什么：
+  不判断 intent，不管理 tool policy，不写 graph state，不生成最终答案。
+"""
+
 from __future__ import annotations
 
 import re

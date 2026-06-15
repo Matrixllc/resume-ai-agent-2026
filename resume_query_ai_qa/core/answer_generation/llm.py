@@ -1,10 +1,22 @@
-"""LLM fill, rewrite, and drift checks for Aggregator."""
+"""LLM prompt, rewrite, drift checks, and grounding merge for Aggregator.
+
+这个文件负责什么：
+  调用 LLM 生成 AggregatedAnswer 文本，检查事实漂移，并把事实字段合并回 grounded。
+
+应该从哪个函数读起：
+  build_fill_prompt() -> reject_if_fact_drifted() -> merge_grounding()。
+
+不会负责什么：
+  不构建 grounded_context，不选择 layout，不调用工具。
+"""
 
 from __future__ import annotations
 
 import json
 import re
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from resume_query_ai_qa.core.config import ResumeQAConfig
 from resume_query_ai_qa.core.llm import invoke_structured
@@ -13,20 +25,29 @@ from resume_query_ai_qa.core.schemas import AggregatedAnswer
 from .grounding import allowed_candidate_names, ranking_sequence_from_context
 
 
+class LLMAnswerDraft(BaseModel):
+    """LLM-owned answer fields; grounding fields are merged from tool-derived context."""
+
+    answer: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+
 def fill_answer_with_llm(payload: dict[str, Any], config: ResumeQAConfig) -> AggregatedAnswer:
-    """调用大模型补全文本答案并返回。"""
+    """调用 LLM，让它基于 question/rule_draft/grounded_context 生成答案文本。"""
     prompt = build_fill_prompt(payload)
-    return invoke_structured(AggregatedAnswer, prompt, config=config)
+    draft = invoke_structured(LLMAnswerDraft, prompt, config=config)
+    return AggregatedAnswer(answer=draft.answer, warnings=draft.warnings)
 
 
 def rewrite_answer_with_llm(payload: dict[str, Any], previous_answer: AggregatedAnswer, answer_errors: list[str], config: ResumeQAConfig) -> AggregatedAnswer:
     """调用大模型重写答案并返回。"""
     prompt = build_rewrite_prompt(payload, previous_answer, answer_errors)
-    return invoke_structured(AggregatedAnswer, prompt, config=config)
+    draft = invoke_structured(LLMAnswerDraft, prompt, config=config)
+    return AggregatedAnswer(answer=draft.answer, warnings=draft.warnings)
 
 
 def build_fill_prompt(payload: dict[str, Any]) -> str:
-    """构建fill提示词并返回。"""
+    """构建 aggregator fill prompt，明确 LLM 只能使用 grounded_context 中的事实。"""
     layout_requirements = build_layout_prompt_requirements(payload.get("rule_draft"))
     return f"""你是简历问答系统的 Aggregator。根据 layout rule draft 和 grounded context 生成中文答案。
 
@@ -39,7 +60,7 @@ def build_fill_prompt(payload: dict[str, Any]) -> str:
 - required_sections 是必须回答的语义内容，不代表必须显示章节标题。
 - required_title_sections 中的章节必须原样显示 titles 中配置的标题；first_section 必须位于答案开头。
 - 可见章节标题必须使用纯文本标题，不要使用 Markdown 标题前缀，例如 #、##、###。
-- 输出 AggregatedAnswer JSON；claims 和 used_evidence_refs 可以留空，系统会基于 context 回填。
+- 输出 JSON，只需要填写 answer 和 warnings；claims 和 used_evidence_refs 不要填写，系统会基于 context 回填。
 
 layout 输出合同:
 {layout_requirements}
@@ -123,10 +144,12 @@ def has_empty_evidence_disclaimer(text: str) -> bool:
 
 
 def _normalize_disclaimer_text(text: str) -> str:
+    """Normalize answer text before matching disclaimer signals."""
     return re.sub(r"\s+", "", str(text or "").lower())
 
 
 def _has_evidence_absence_signal(text: str) -> bool:
+    """Return whether text states that supporting evidence is absent."""
     evidence_terms = r"(证据|依据|材料|来源|记录|项目|经历|经验|结果|evidence|context)"
     absence_terms = r"(未|没|没有|无|缺少|缺乏|不足|为空|0|零|未能|不能|无法)"
     retrieval_terms = r"(查到|找到|返回|获得|检索到|提供|命中|支持|用于确认|可核查|明确)"
@@ -139,6 +162,7 @@ def _has_evidence_absence_signal(text: str) -> bool:
 
 
 def _has_uncertainty_signal(text: str) -> bool:
+    """Return whether text avoids confirming a fact without enough evidence."""
     confirm_terms = r"(确认|判断|核实|认定|证明|推断|下结论|支持该结论|得出结论|confirm|verify|conclude|infer)"
     uncertainty_terms = r"(不能|无法|难以|不足以|不应|不宜|不可|不能据此|无法据此|暂不能|目前不能|不确定)"
     return bool(
@@ -181,7 +205,7 @@ def _looks_like_single_candidate_name(value: str) -> bool:
 
 
 def merge_grounding(answer: AggregatedAnswer, grounded: AggregatedAnswer) -> AggregatedAnswer:
-    """合并事实约束并返回。"""
+    """保留 LLM answer 文本，但用 grounded claims/evidence/warnings 做事实收口。"""
     return answer.model_copy(
         update={
             "claims": grounded.claims,

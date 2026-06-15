@@ -9,7 +9,7 @@ from docx import Document
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCUMENTS_DIR = REPO_ROOT / "documents"
-V3_RESUME_DIR = REPO_ROOT / "resume_query_v3" / "resume"
+V3_RESUME_DIR = REPO_ROOT / "resume"
 
 
 DOMAIN_RESUMES: list[dict[str, Any]] = [

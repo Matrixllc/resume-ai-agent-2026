@@ -1,4 +1,15 @@
-"""QA 配置对象和对外规则查询方法。"""
+"""QA configuration facade and runtime query methods.
+
+这个文件负责什么：
+  保存所有 YAML 原始配置，并提供跨节点共享的查询方法。
+
+应该从哪个函数读起：
+  ResumeQAConfig，然后按 node 需要阅读 allowed_tools_for_intent、
+  semantic_defaults_for_intent、tool_produces 等查询方法。
+
+不会负责什么：
+  不读取文件，不执行节点逻辑，不判断用户问题，不修复配置。
+"""
 
 from __future__ import annotations
 

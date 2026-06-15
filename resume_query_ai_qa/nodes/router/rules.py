@@ -23,7 +23,6 @@ from resume_query_ai_qa.nodes.router.rule_types import IntentDraft, RouterSignal
 from resume_query_ai_qa.nodes.router.signals import (
     candidate_mentions,
     candidate_reference_conditions,
-    contains_sensitive_interview_terms,
     contains_any,
     detect_router_signals,
     explicit_candidate_match_count,
@@ -36,6 +35,16 @@ from resume_query_ai_qa.nodes.router.signals import (
     matched_terms,
     strings,
     terms,
+)
+
+_ROUTER_SIGNAL_FACADE = (
+    candidate_mentions,
+    explicit_candidate_match_count,
+    looks_like_candidate_reference,
+    looks_like_context_pool_priority_question,
+    looks_like_pair_compare,
+    looks_like_single_candidate_fit_question,
+    strings,
 )
 
 
@@ -295,6 +304,18 @@ def handle_list_or_profile_intent(draft: IntentDraft, ctx: RuleContext) -> None:
         draft.add("candidate_list", matched_terms(ctx.text, terms(ctx.config, "intent_rules", "candidate_list", "trigger_any")))
 
 
+def handle_scoped_collection_project_evidence_intent(draft: IntentDraft, ctx: RuleContext) -> None:
+    """scoped candidate list + per-person project terms -> list + evidence."""
+    if not ctx.signals.scoped_project_evidence_request or ctx.signals.candidate_reference:
+        return
+    draft.add("candidate_list", matched_terms(ctx.text, terms(ctx.config, "signals", "collection_request_terms")))
+    draft.add(
+        "evidence_question",
+        matched_terms(ctx.text, terms(ctx.config, "signals", "per_person_terms") + terms(ctx.config, "signals", "project_terms")),
+    )
+    draft.requires_evidence = True
+
+
 def handle_profile_terms_intent(draft: IntentDraft, ctx: RuleContext) -> None:
     """profile terms without open discovery -> candidate_profile_intro.
 
@@ -306,6 +327,8 @@ def handle_profile_terms_intent(draft: IntentDraft, ctx: RuleContext) -> None:
     is_discovery_without_reference = contains_any(ctx.text, discovery_terms) and not (
         ctx.signals.candidate_reference or ctx.signals.context_single_reference
     )
+    if ctx.signals.scoped_project_evidence_request:
+        return
     if contains_any(ctx.text, terms(ctx.config, "signals", "profile_terms")) and not is_discovery_without_reference:
         draft.add("candidate_profile_intro", matched_terms(ctx.text, terms(ctx.config, "signals", "profile_terms")))
         draft.requires_evidence = True
@@ -450,6 +473,7 @@ def _profile_or_project_terms(config: ResumeQAConfig) -> list[str]:
 
 RULE_INTENT_HANDLERS = [
     handle_count_intent,
+    handle_scoped_collection_project_evidence_intent,
     handle_list_or_profile_intent,
     handle_profile_terms_intent,
     handle_single_candidate_project_profile_intent,

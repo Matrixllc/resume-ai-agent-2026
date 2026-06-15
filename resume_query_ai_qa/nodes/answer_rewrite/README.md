@@ -1,89 +1,180 @@
 # Answer Rewrite Node
 
-## 职责
+## 一句话
 
-`answer_rewrite` 是 `answer_validator` 之后的答案修复节点。它基于上一版答案、
-`ValidationIssue`、`QueryPlan` 和本轮 `ToolResult` 修复表达，使答案重新满足
-grounding、隐私、布局和空证据契约。
+`answer_rewrite` 是答案校验失败后的受控修复节点：
 
-它不重新调用工具、不补造事实、不改变业务结论。
+```text
+answer_validator
+-> answer_rewrite
+-> answer_validator
+```
+
+它不是直接放行答案的节点。rewrite 后必须回到 `answer_validator` 复检。
+
+## 架构位置
+
+```text
+aggregator
+-> answer_validator
+-> answer_rewrite
+-> answer_validator
+-> final / rule_answer_fallback / failed
+```
+
+`answer_rewrite` 只在 `answer_validator` 发现阻断错误后运行。它基于现有 `ToolResult[]`、上一版 `AggregatedAnswer` 和 validator errors 生成 rewrite candidate，或者请求进入 `rule_answer_fallback`。
+
+## 节点目标
+
+它做：
+
+```text
+读取 answer_validator 的 ValidationIssue
+判断当前错误是否适合 rewrite
+对未覆盖的表达类问题尝试 LLM rewrite
+把 rewrite candidate 写回 qa.answer
+让 graph 回到 answer_validator 复检
+无法安全 rewrite 时请求 rule_answer_fallback
+```
+
+它不做：
+
+```text
+不调用工具
+不修改 QueryPlan
+不修改 ToolResult
+不新增候选人、证据、排序或数量
+不绕过 answer_validator
+不在本节点内部直接生成最终 final
+```
 
 ## 输入
 
 | 输入 | 来源 | 用途 |
 | --- | --- | --- |
-| `aggregated_answer` | aggregator | 被修复的上一版答案。 |
-| `answer_validation_errors[]` | answer_validator | 决定修复策略。 |
-| `compiled_plan` | plan_compiler | 保持答案仍覆盖原计划。 |
-| `tool_results` | executor | 规则重建答案的事实来源。 |
-| `trace` | graph state | 记录 repair/fallback 原因。 |
+| `question` | graph state / `qa.question` | 构建 rewrite prompt。 |
+| `plan: QueryPlan` | plan_compiler | 保持 rewrite 仍回答原计划。 |
+| `tool_results: ToolResult[]` | executor | grounded context 的唯一事实来源。 |
+| `previous_answer: AggregatedAnswer` | aggregator / previous rewrite | 被修复的上一版答案。 |
+| `answer_errors: list[str]` | answer_validator | 给 LLM 的错误摘要。 |
+| `answer_issues: ValidationIssue[]` | answer_validator | policy 分类依据。 |
+| `use_llm` | graph runner | 决定是否允许 LLM rewrite。 |
+| `config` | YAML loader | 读取 repair policy 和 answer generation 配置。 |
 
 ## 输出
 
-| 输出 | 写回字段 | 下游 |
+| 输出 | 含义 | 下游 |
 | --- | --- | --- |
-| 修复后的答案 | `aggregated_answer` | `answer_validator` 复检 |
-| 修复动作 | `repair_action` | API diagnosis / detail JSON |
-| 修复原因 | `repair_reason` | API diagnosis / detail JSON |
-| fallback 原因 | `fallback_reason` | API diagnosis / 前端 Debug |
+| `answer != None` | 生成了 rewrite candidate，写回 `qa.answer`。 | 回 `answer_validator` 复检。 |
+| `answer == None` | 本节点不产出候选答案。 | graph 设置 `answer_fallback_requested`。 |
+| `fallback_request` | 请求确定性 rule fallback。 | `rule_answer_fallback`。 |
+| `meta.answer_repair_policy` | 记录分类动作、错误类别和原因。 | trace / diagnosis。 |
+| `meta.aggregator_io` | LLM prompt/response/debug 摘要。 | debug trace。 |
 
 ## 主流程
 
 ```text
-answer_validator
-  -> answer_rewrite
-     -> policy.py
-     -> rule_repair 或 llm_rewrite
-  -> answer_validator
+graph.nodes.answer_rewrite_node
+-> rewrite_answer
+-> classify_answer_repair_policy
+-> _issue_prompts
+-> generate_rewrite_candidate_with_meta
+-> run_rewrite_flow
+-> answer_validator
 ```
 
-warning-only 不进入 rewrite；真正需要 rewrite 的错误必须由 `answer_validator`
-明确给出。
+详细阅读线见 `ANSWER_REWRITE_FLOW.md`。
 
-## 失败 / Repair / Fallback
+## Policy 怎么判断
 
-| 场景 | 行为 | 字段 |
-| --- | --- | --- |
-| count/name/ranking/evidence_id 错误 | 丢弃不稳定文本，用规则答案重建。 | `repair_action=rule_repair` |
-| privacy 错误 | 优先规则重建，避免继续传播泄露内容。 | `repair_reason=privacy` |
-| evidence coverage 不足 | 基于工具结果补充证据不足或空证据说明。 | `repair_reason=evidence_coverage` |
-| layout 缺失 | 按 layout contract 规则重建。 | `repair_action=rule_repair` |
-| 未覆盖的可修复表达问题 | 可走 LLM rewrite，再由 validator 复检。 | `repair_action=llm_rewrite` |
-| 修复后仍不合格 | 路由到 rule fallback 或失败。 | `route_events[]`、`answer_validation_errors[]` |
+`policy.py` 只看 `ValidationIssue`，不重新理解自然语言。
 
-空证据场景只修表达，不触发检索回退：如果工具正常返回 0 条，rewrite 应补“未查到证据”而不是重新搜索。
+核心逻辑：
 
-## Trace 字段
+```text
+没有 hard issue
+-> action=none
 
-| 字段 | 含义 |
+所有 hard issue.category 都在 validation.yaml.answer_repair.rule_repair_categories
+-> action=rule_repair
+-> 本节点返回 answer=None
+-> graph route 到 rule_answer_fallback
+
+存在不在支持列表里的 category
+-> action=llm_rewrite
+-> 尝试生成 rewrite candidate
+```
+
+注意：
+
+```text
+rule_repair 不在 answer_rewrite 内部直接重建答案。
+rule_repair 会返回 fallback_request，让 graph 路由到 rule_answer_fallback。
+```
+
+## LLM Rewrite 做什么
+
+LLM rewrite 输入包括：
+
+```text
+question
+previous_answer
+validator errors
+query_frame
+rule_draft
+grounded_context
+selected_evidence
+tool_results_summary
+```
+
+LLM 可以生成新的 `answer.answer` 文本，但不能改变工具事实。生成后会经过：
+
+```text
+reject_if_fact_drifted
+validate_layout_contract
+merge_grounding
+```
+
+最终：
+
+```text
+answer.answer 可以来自 LLM
+answer.claims 来自 grounded
+answer.used_evidence_refs 来自 grounded
+answer.warnings 合并 grounded + LLM
+```
+
+## 失败与回退
+
+| 场景 | 行为 |
 | --- | --- |
-| `repair_action` | 本节点采取的修复动作，例如 `rule_repair`、`llm_rewrite`。 |
-| `repair_reason` | 为什么修复，例如 `privacy`、`evidence_coverage`。 |
-| `fallback_reason` | 修复无法继续时的 fallback 原因。 |
-| `error_category` | 触发修复的 validator 分类。 |
-| `route_events[]` | 从 validator 到 rewrite、从 rewrite 回 validator 的路由记录。 |
-| `aggregator_io_tail[]` | 如使用 LLM rewrite，Debug detail 保留 prompt/response 尾部。 |
+| `previous_answer` 缺失 | 请求 fallback。 |
+| validator issue 支持 rule repair | 请求 `rule_answer_fallback`。 |
+| LLM disabled | rewrite candidate 为空，进入 fallback 路由。 |
+| LLM 输出事实漂移 | 拒绝 candidate。 |
+| LLM 输出 layout 违约 | 拒绝 candidate。 |
+| LLM 异常 | 记录错误，candidate 为空。 |
+| rewrite candidate 生成成功 | 写回答案，再回 `answer_validator`。 |
 
-## 边界：能做 / 不能做
+## 文档阅读顺序
 
-| 能做 | 不能做 |
-| --- | --- |
-| 修复不合格答案表达。 | 重新执行 evidence 工具。 |
-| 基于工具结果规则重建答案。 | 新增工具结果没有的事实。 |
-| 清除隐私/漂移/错误引用。 | 修改 `compiled_plan` 或 scenario。 |
-| 记录 repair 可观测字段。 | 将不可修复问题伪装成成功。 |
+```text
+1. README.md
+2. ANSWER_REWRITE_FLOW.md
+3. YAML_USAGE.md
+4. node.py
+5. policy.py
+6. core/answer_generation/generation.py
+7. core/answer_generation/llm_flow.py
+8. core/answer_generation/llm.py
+```
 
-## 扩展方式
-
-1. 新增 answer validator category 后，同步在 `policy.py` 定义 repair 策略。
-2. 优先使用规则重建；只有纯表达问题才允许 LLM rewrite。
-3. 新增 repair/fallback 原因时同步更新 `QUERY_AI_LOGS.md`、API README 和前端诊断文案。
-4. 扩展后必须确保修复答案再次经过 `answer_validator`。
-
-## 验收 benchmark
+## 验收
 
 ```bash
-.venv/bin/python -m compileall -q resume_query_ai_qa
-.venv/bin/python resume_query_ai_qa/benchmarks/run_runtime_contract_benchmark.py
-.venv/bin/python resume_query_ai_qa/benchmarks/run_runtime_contract_benchmark.py
+rg "Answer Rewrite|ANSWER_REWRITE_FLOW|YAML_USAGE|rewrite_answer|classify_answer_repair_policy|generate_rewrite_candidate_with_meta" resume_query_ai_qa/nodes/answer_rewrite
+./.venv/bin/python -m compileall -q resume_query_ai_qa/nodes/answer_rewrite
+./.venv/bin/python resume_query_ai_qa/benchmarks/run_policy_contract_benchmark.py
+./.venv/bin/python resume_query_ai_qa/benchmarks/run_plan_contract_benchmark.py
+./.venv/bin/python resume_query_ai_qa/benchmarks/run_runtime_contract_benchmark.py
 ```

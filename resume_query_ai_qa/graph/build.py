@@ -1,3 +1,15 @@
+"""LangGraph wiring for Query-AI.
+
+这个文件负责什么：
+  注册 graph 节点、普通边和条件边。
+
+应该从哪个函数读起：
+  build_state_graph()。
+
+不会负责什么：
+  不做 intent、plan、execution、answer 的业务判断；条件判断函数在 routes.py。
+"""
+
 from __future__ import annotations
 
 import warnings
@@ -35,7 +47,7 @@ from .state import _GraphState
 
 
 def build_state_graph():
-    """注册图节点和条件边并返回可执行状态图。"""
+    """注册节点和边，并返回可执行 LangGraph；这里只描述拓扑，不承载业务规则。"""
     builder = StateGraph(_GraphState)
     builder.add_node("router", router_node)
     builder.add_node("condition_normalizer", condition_normalizer_node)

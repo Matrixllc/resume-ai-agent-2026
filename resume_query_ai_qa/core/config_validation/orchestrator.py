@@ -1,4 +1,14 @@
-"""配置结构校验编排入口。"""
+"""Configuration structure validation orchestrator.
+
+这个文件负责什么：
+  编排所有 YAML/shared_taxonomy 的启动期结构校验。
+
+应该从哪个函数读起：
+  validate_config_structure()。
+
+不会负责什么：
+  不执行 graph，不修复配置，不做运行时 validator 的工作。
+"""
 
 from __future__ import annotations
 

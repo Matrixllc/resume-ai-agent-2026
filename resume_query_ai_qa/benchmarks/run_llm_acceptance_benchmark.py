@@ -28,8 +28,6 @@ MODES = {
     "hybrid": HYBRID_ENV,
     "llm_only": {
         "RESUME_QA_WORKFLOW_TEMPLATE_COMPILER_ENABLED": "false",
-        "RESUME_QA_GENERIC_TOOL_COMPILER_ENABLED": "true",
-        "RESUME_QA_COMPILER_MODE": "generic_tool_binding",
     },
 }
 

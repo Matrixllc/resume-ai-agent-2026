@@ -1,4 +1,14 @@
-"""Session context handoff rules for QA state."""
+"""Session context handoff rules for QA state.
+
+这个文件负责什么：
+  在 final 阶段从本轮 ResumeQAState 构建下一轮可用的 updated_session_context。
+
+应该从哪个函数读起：
+  build_updated_session_context()。
+
+不会负责什么：
+  不影响当前轮回答，不决定 route，不调用工具；只扫描已有 ToolResult 和 trace。
+"""
 
 from __future__ import annotations
 
@@ -9,7 +19,11 @@ from resume_query_ai_qa.core.schemas import ResumeQAState
 
 
 def build_updated_session_context(qa: ResumeQAState) -> dict[str, Any]:
-    """构建更新后会话上下文并返回。"""
+    """从本轮最终状态构建下一轮 session_context，并交给 sanitize 做安全收口。
+
+    输入来自 qa.trace、qa.answer 和成功的 qa.tool_results。输出字段用于下一轮解析
+    “第一名/这些人/刚才那个人/JD 标准”等上下文引用。
+    """
     context: dict[str, Any] = {}
     context["last_turn_id"] = qa.trace.trace_id
     context["last_user_question"] = qa.question[:300]
@@ -64,7 +78,7 @@ def build_updated_session_context(qa: ResumeQAState) -> dict[str, Any]:
 
 
 def _candidate_ids_from_tool_data(data: Any) -> list[str]:
-    """从工具数据提取候选人标识集合并返回。"""
+    """从候选人池工具结果中提取 resume_identity 列表。"""
     if not isinstance(data, list):
         return []
     ids: list[str] = []
@@ -81,7 +95,7 @@ def _candidate_ids_from_tool_data(data: Any) -> list[str]:
 
 
 def _candidate_names_from_tool_data(data: Any) -> list[str]:
-    """从工具数据提取候选人名称集合并返回。"""
+    """从候选人池工具结果中提取候选人姓名列表。"""
     if not isinstance(data, list):
         return []
     names: list[str] = []

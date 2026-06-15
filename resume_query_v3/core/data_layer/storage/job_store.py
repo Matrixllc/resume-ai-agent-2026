@@ -41,18 +41,40 @@ class PipelineJobStore:
 
     def mark_started(self, *, run_id: str, resume_identity: str, source_path: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
+            existing_resume = conn.execute(
+                "SELECT id FROM ingestion_runs WHERE resume_identity = ?",
+                (resume_identity,),
+            ).fetchone()
+            if existing_resume:
+                conn.execute(
+                    """
+                    UPDATE ingestion_runs
+                    SET run_id = ?, source_path = ?, status = ?, parser_mode = '', resolve_mode = '', error_message = ''
+                    WHERE id = ?
+                    """,
+                    (run_id, source_path, "RUNNING", existing_resume[0]),
+                )
+                return
+
+            existing_run = conn.execute(
+                "SELECT id FROM ingestion_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if existing_run:
+                conn.execute(
+                    """
+                    UPDATE ingestion_runs
+                    SET resume_identity = ?, source_path = ?, status = ?, parser_mode = '', resolve_mode = '', error_message = ''
+                    WHERE id = ?
+                    """,
+                    (resume_identity, source_path, "RUNNING", existing_run[0]),
+                )
+                return
+
             conn.execute(
                 """
                 INSERT INTO ingestion_runs (run_id, resume_identity, source_path, status)
                 VALUES (?, ?, ?, ?)
-                ON CONFLICT(resume_identity) DO UPDATE SET
-                    run_id=excluded.run_id,
-                    resume_identity=excluded.resume_identity,
-                    source_path=excluded.source_path,
-                    status=excluded.status,
-                    parser_mode='',
-                    resolve_mode='',
-                    error_message=''
                 """,
                 (run_id, resume_identity, source_path, "RUNNING"),
             )

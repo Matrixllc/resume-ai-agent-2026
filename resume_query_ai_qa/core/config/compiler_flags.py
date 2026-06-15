@@ -1,40 +1,33 @@
-"""compiler env 开关解析与一致性校验。"""
+"""Compiler env flag parsing.
+
+这个文件负责什么：
+  从项目 .env / 环境变量读取 workflow template 开关，并推导 compiler 模式。
+
+应该从哪个函数读起：
+  compiler_flags_for_config() -> load_project_env() -> env_bool()。
+
+不会负责什么：
+  不编译 QueryPlan，不选择 workflow，不修改 YAML。
+"""
 
 from __future__ import annotations
 
 import os
 from typing import Any
 
-from dotenv import load_dotenv
+from resume_query_common.env import load_repo_env
 
 
 class CompilerConfigError(RuntimeError):
-    """compiler 模式配置错误；启动期抛出，避免 compiler 节点自行兜底猜测。"""
+    """保留给外部兼容；当前单开关配置不会产生非法组合。"""
 
 
 def compiler_flags_for_config(config: Any) -> dict[str, Any]:
-    """根据配置生成compiler标记集合并返回。"""
+    """读取单一 workflow env 开关并返回标准化 mode/feature flags。"""
     load_project_env(config)
-    workflow_enabled = env_bool("RESUME_QA_WORKFLOW_TEMPLATE_COMPILER_ENABLED", True)
-    generic_enabled = env_bool("RESUME_QA_GENERIC_TOOL_COMPILER_ENABLED", False)
-    mode = os.getenv("RESUME_QA_COMPILER_MODE", "").strip().lower()
-    if not workflow_enabled and not generic_enabled:
-        raise CompilerConfigError(
-            "At least one compiler must be enabled: "
-            "RESUME_QA_WORKFLOW_TEMPLATE_COMPILER_ENABLED or RESUME_QA_GENERIC_TOOL_COMPILER_ENABLED"
-        )
-    if not mode:
-        mode = "hybrid_template_binding" if workflow_enabled and generic_enabled else ("workflow_template" if workflow_enabled else "generic_tool_binding")
-    if mode not in {"workflow_template", "generic_tool_binding", "hybrid_template_binding"}:
-        raise CompilerConfigError(f"unsupported RESUME_QA_COMPILER_MODE: {mode}")
-    if mode == "workflow_template" and not workflow_enabled:
-        raise CompilerConfigError("RESUME_QA_COMPILER_MODE=workflow_template but workflow compiler is disabled")
-    if mode == "generic_tool_binding" and not generic_enabled:
-        raise CompilerConfigError("RESUME_QA_COMPILER_MODE=generic_tool_binding but generic compiler is disabled")
-    if mode == "hybrid_template_binding" and not (workflow_enabled and generic_enabled):
-        raise CompilerConfigError(
-            "RESUME_QA_COMPILER_MODE=hybrid_template_binding requires both workflow and generic compilers enabled"
-        )
+    workflow_enabled = env_bool("RESUME_QA_WORKFLOW_TEMPLATE_COMPILER_ENABLED", False)
+    generic_enabled = True
+    mode = "hybrid_template_binding" if workflow_enabled else "generic_tool_binding"
     return {
         "mode": mode,
         "workflow_template_enabled": workflow_enabled,
@@ -44,8 +37,7 @@ def compiler_flags_for_config(config: Any) -> dict[str, Any]:
 
 def load_project_env(config: Any) -> None:
     """从项目根目录加载 .env；只补充环境，不覆盖外部运行时注入。"""
-    project_root = config.app_root.parent
-    load_dotenv(project_root / ".env", override=False)
+    load_repo_env(override=False)
 
 
 def env_bool(name: str, default: bool) -> bool:

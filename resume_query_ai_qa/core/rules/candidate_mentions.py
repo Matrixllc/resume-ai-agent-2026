@@ -19,6 +19,19 @@ _MENTION_PATTERN_TEMPLATES = [
     r"(?:对|针对|围绕)\s*([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z ._-]{1,30}?)(?:的)?(?:简历)?(?:提出|准备|生成|设计)(?:一些|\d+\s*个|几个)?(?:简历)?(?:面试)?(?:问题|提问|追问|面试题)",
 ]
 
+COLLECTION_QUANTIFIER_TERMS = {
+    "每个人",
+    "每个人的",
+    "每位",
+    "每位候选人",
+    "各自",
+    "分别",
+    "所有人",
+    "这些人",
+    "这些候选人",
+    "大家",
+}
+
 
 def extract_candidate_mentions(text: str, *, allow_full_text_fallback: bool = False) -> list[str]:
     """提取原始候选人指代，不扩展为规范姓名。"""
@@ -64,6 +77,9 @@ def clean_candidate_mention(value: str) -> str:
             mention = mention[len(prefix):].strip(" ，,。；;:：?？")
     if not mention or mention in {"谁", "他", "她", "他们", "她们", "人", "这个人", "刚才那个人", "这些人", "候选人"}:
         return ""
+    mention_key = _normalize_key(mention).strip("的")
+    if mention_key in {_normalize_key(term).strip("的") for term in COLLECTION_QUANTIFIER_TERMS}:
+        return ""
     for prefix in ("分析", "判断", "评估"):
         if mention.startswith(prefix) and len(mention) > len(prefix):
             mention = mention[len(prefix):].strip(" ，,。；;:：?？")
@@ -88,8 +104,10 @@ def clean_candidate_mention(value: str) -> str:
         "相关",
         "类似",
         "接近",
+        "找出",
         "找找",
         "看看",
+        "推荐",
         "这类",
     }
     blocked_terms.update(aliases_for_types("domain", "concept", "skill", "major"))

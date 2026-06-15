@@ -1,4 +1,24 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+const ACCESS_TOKEN_KEY = "resume_query_access_token";
+
+export function getAccessToken() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(ACCESS_TOKEN_KEY) || "";
+}
+
+export function setAccessToken(token: string) {
+  if (typeof window === "undefined") return;
+  const cleaned = token.trim();
+  if (cleaned) {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, cleaned);
+  } else {
+    window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+  }
+}
+
+export function clearAccessToken() {
+  setAccessToken("");
+}
 
 export type ScoredField<T = string> = {
   value: T;
@@ -119,10 +139,18 @@ export type ResumeDocument = {
 
 export type IngestionResponse = {
   directory: string;
+  uploaded_file?: string;
+  original_file?: string;
+  stored_file?: string;
   total_files: number;
   success_count: number;
   error_count: number;
   message: string;
+  reset_summary?: {
+    enabled?: boolean;
+    removed?: string[];
+    skipped_missing?: string[];
+  };
   results: IngestionResult[];
 };
 
@@ -131,6 +159,9 @@ export type IngestionResult = {
   status: "ok" | "error";
   error?: string;
   resume_identity?: string;
+  document_hash?: string;
+  identity_match_source?: string;
+  merged_existing_candidate?: boolean;
   replaced_existing_resume?: boolean;
   name?: string;
   work_count?: number;
@@ -143,7 +174,9 @@ export type IngestionResult = {
 export type IngestionStatus = {
   running: boolean;
   phase: string;
+  mode?: string;
   directory: string;
+  uploaded_file?: string;
   total_files: number;
   current_index: number;
   current_file: string;
@@ -151,6 +184,7 @@ export type IngestionStatus = {
   success_count: number;
   error_count: number;
   message: string;
+  error_hint?: string;
   recent_messages: string[];
 };
 
@@ -257,9 +291,16 @@ export type QAAskResponse = {
     }[];
     node_details?: Record<string, {
       title?: string;
+      summary?: string;
+      checks?: {
+        label: string;
+        status: "ok" | "failed" | "warning" | string;
+        detail?: string;
+      }[];
       input?: Record<string, unknown>;
       decision?: Record<string, unknown>;
       output?: Record<string, unknown>;
+      advanced?: Record<string, unknown>;
       raw?: Record<string, unknown>;
     }>;
     route_events?: {
@@ -284,11 +325,20 @@ export type QAAskResponse = {
     retry_count?: Record<string, number>;
     semantic_plan?: Record<string, unknown> | null;
     compiled_plan?: Record<string, unknown> | null;
+    answer_claims?: {
+      type?: string;
+      subject?: string;
+      text?: string;
+      value?: unknown;
+      supported_by?: string[];
+      evidence_ids?: string[];
+    }[];
     compiler_decision?: {
       compiler_mode?: string;
       compiler_config_mode?: string;
       compiler_strategy?: string;
       compiler_source?: string;
+      workflow_name?: string;
       compiler_enabled_flags?: Record<string, unknown>;
       selection_rule?: string;
       hint_tool_decisions?: {
@@ -342,19 +392,25 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (method === "GET") {
     url.searchParams.set("_ts", Date.now().toString());
   }
+  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const headers = {
+    ...(!isFormData ? { "Content-Type": "application/json" } : {}),
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    Pragma: "no-cache",
+    ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+    ...(init?.headers || {}),
+  };
   const response = await fetch(url.toString(), {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      Pragma: "no-cache",
-      ...(init?.headers || {}),
-    },
+    headers,
     cache: "no-store",
     next: { revalidate: 0 },
   });
   if (!response.ok) {
     const text = await response.text();
+    if (response.status === 401) {
+      throw new Error("UNAUTHORIZED: 访问密码无效或缺失。");
+    }
     throw new Error(text || `Request failed: ${response.status}`);
   }
   return response.json();
@@ -378,8 +434,12 @@ export async function getCandidateResumeDocument(resumeIdentity: string) {
 
 export function toApiUrl(pathOrUrl: string) {
   if (!pathOrUrl) return "";
-  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
-  return `${API_BASE}${pathOrUrl}`;
+  const url = new URL(/^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : `${API_BASE}${pathOrUrl}`);
+  const token = getAccessToken();
+  if (token && !url.searchParams.has("access_token")) {
+    url.searchParams.set("access_token", token);
+  }
+  return url.toString();
 }
 
 export async function generateCandidateSummary(resumeIdentity: string) {
@@ -389,10 +449,19 @@ export async function generateCandidateSummary(resumeIdentity: string) {
   });
 }
 
-export async function ingestResumeFiles(directory = "resume_query_v3/resume") {
+export async function ingestResumeFiles(directory = "resume", resetBeforeIngest = true) {
   return apiFetch<IngestionResponse>("/ingestion/resumes", {
     method: "POST",
-    body: JSON.stringify({ directory }),
+    body: JSON.stringify({ directory, reset_before_ingest: resetBeforeIngest }),
+  });
+}
+
+export async function uploadResumeFile(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<IngestionResponse>("/ingestion/resumes/upload", {
+    method: "POST",
+    body: formData,
   });
 }
 

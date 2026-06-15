@@ -8,7 +8,7 @@ from resume_query_ai_qa.core.rules.execution_policy_rules import scenario_for_in
 from resume_query_ai_qa.core.schemas import RouterOutput, SubTaskPlan, ToolCallSpec
 
 from .builders import generic_call_for_tool, hybrid_source_call, ranking_criteria_tool
-from .query_args import filter_args, ranking_filter_args, tool_query
+from .query_args import filter_args, preference_filter_args, preference_recall_query, ranking_filter_args, tool_query
 from .source_policy import dedupe_repeated_calls
 
 
@@ -100,10 +100,14 @@ def normalize_call(
                     }
                 )
             return call.model_copy(update={"arguments": args})
-        return call.model_copy(update={"arguments": filter_args(question, router_output, session_context)})
+        args = filter_args(question, router_output, session_context)
+        if not args:
+            args = preference_filter_args(question, router_output, session_context)
+        return call.model_copy(update={"arguments": args})
     if kind == "semantic_search":
+        query = tool_query(question, intent, router_output) or preference_recall_query(question, router_output)
         return hybrid_source_call(
-            tool_query(question, intent, router_output),
+            query,
             router_output,
             session_context,
             output_key=call.output_key or "candidate_pool",

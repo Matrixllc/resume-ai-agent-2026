@@ -24,6 +24,12 @@ def filter_args(question: str, router_output: RouterOutput, session_context: dic
     return with_context_candidate_ids(args, router_output, session_context)
 
 
+def preference_filter_args(question: str, router_output: RouterOutput, session_context: dict | None = None) -> dict[str, Any]:
+    """把 preference_target 按当前 filter 场景降级为结构化筛选参数。"""
+    args = filter_arguments_from_conditions(router_output.normalized_conditions, question, include_preference_targets=True)
+    return with_context_candidate_ids(args, router_output, session_context)
+
+
 def ranking_filter_args(question: str, router_output: RouterOutput, session_context: dict | None = None) -> dict[str, Any]:
     """获取排序候选池筛选参数，领域岗位可入池，技能/概念岗位仅作评分目标。"""
     args = filter_arguments_from_conditions(
@@ -32,6 +38,22 @@ def ranking_filter_args(question: str, router_output: RouterOutput, session_cont
         include_preference_domains=True,
     )
     return with_context_candidate_ids(args, router_output, session_context)
+
+
+def preference_recall_query(question: str, router_output: RouterOutput) -> str:
+    """为 open_recall 构建 query，优先使用 preference_target 条件。"""
+    terms: list[str] = []
+    for condition in router_output.normalized_conditions:
+        matched_by = str(getattr(condition, "matched_by", "") or "")
+        if not matched_by.startswith("preference_target:"):
+            continue
+        terms.extend(str(item) for item in (condition.retrieval_terms or []) if str(item).strip())
+        value = str(getattr(condition, "normalized_value", "") or getattr(condition, "raw_value", "") or "").strip()
+        if value:
+            terms.append(value)
+    if terms:
+        return " ".join(dict.fromkeys(terms)).strip()
+    return tool_query(question, "candidate_filter", router_output)
 
 
 def ranking_target_text(question: str, router_output: RouterOutput) -> str:

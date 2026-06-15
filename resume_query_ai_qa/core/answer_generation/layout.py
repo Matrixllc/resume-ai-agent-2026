@@ -1,4 +1,14 @@
-"""YAML-driven answer layout selection."""
+"""YAML-driven answer layout selection.
+
+这个文件负责什么：
+  根据 answer_layouts.yaml 选择答案框架，并提供 layout 合同校验。
+
+应该从哪个函数读起：
+  infer_answer_layout() -> match_layout_rule() -> validate_layout_contract()。
+
+不会负责什么：
+  不生成答案事实，不调用 LLM，不决定 task_type。
+"""
 
 from __future__ import annotations
 
@@ -13,7 +23,7 @@ def infer_answer_layout(
     ok_tools: set[str],
     config: ResumeQAConfig,
 ) -> tuple[str, dict[str, Any], str]:
-    """推断答案布局并返回。"""
+    """按 answer_layouts.yaml 优先级选择当前回答布局。"""
     layouts = config.answer_layout_rules()
     ordered = sorted(
         ((name, dict(payload or {})) for name, payload in layouts.items() if isinstance(payload, dict)),

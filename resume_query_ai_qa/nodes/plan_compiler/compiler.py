@@ -1,4 +1,20 @@
-"""SemanticPlan to QueryPlan lowering entrypoints."""
+"""Plan compiler entrypoints.
+
+这个文件负责什么：
+- 把 SemanticPlan 编译成 executor 可执行的 QueryPlan。
+- 按 compiler mode 分流 workflow_template / generic_tool_binding / hybrid_template_binding。
+- 在 generic 路径里把 tool hints 过滤、绑定并转成 ToolCallSpec。
+
+应该从哪个函数读起：
+- compile_semantic_plan_with_meta
+- compile_with_hybrid_template_binding
+- compile_with_generic_tool_binding
+
+不会负责什么：
+- 不重新理解用户问题。
+- 不调用 tools。
+- 不修复非法计划，非法计划交给 plan_validator / plan_repair。
+"""
 
 from __future__ import annotations
 
@@ -26,6 +42,7 @@ from resume_query_ai_qa.core.rules.plan_building import (
     should_use_hybrid_recall,
     source_signature,
     tool_query,
+    preference_recall_query,
     replace_ref_root,
     with_structured_refs,
 )
@@ -42,7 +59,11 @@ def compile_semantic_plan_with_meta(
     config: ResumeQAConfig | None = None,
     decision: ExecutionDecision | None = None,
 ) -> tuple[QueryPlan, dict[str, Any]]:
-    """编译语义计划并返回查询计划及编译元信息。"""
+    """编译语义计划并返回查询计划及编译元信息。
+
+    这是 plan_compiler 的主入口。它先把 SemanticPlan 重新 normalize，
+    再根据 compiler flags 选择 template、generic 或 hybrid 路径。
+    """
     cfg = config or load_config()
     flags = cfg.compiler_flags()
     resolved = decision or resolve_execution_decision(question, router_output, cfg)
@@ -65,7 +86,10 @@ def compile_semantic_plan(
     config: ResumeQAConfig | None = None,
     decision: ExecutionDecision | None = None,
 ) -> QueryPlan:
-    """将语义计划中的compilesemantic计划编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+    """编译语义计划并只返回 QueryPlan。
+
+    调用方不需要 compiler meta 时使用这个简化入口。
+    """
     plan, _meta = compile_semantic_plan_with_meta(question, router_output, semantic_plan, session_context=session_context, config=config, decision=decision)
     return plan
 
@@ -75,7 +99,10 @@ def refresh_artifact_bindings(
     router_output: RouterOutput | None,
     config: ResumeQAConfig | None = None,
 ) -> QueryPlan:
-    """刷新计划产物绑定；可注入同一轮配置以避免重复加载 YAML。"""
+    """刷新计划的结构化引用和产物绑定。
+
+    主要供 repair 或外部调用在修改 QueryPlan 后重新生成 artifact_bindings。
+    """
     return with_artifact_bindings(with_structured_refs(plan), router_output, config=config)
 
 
@@ -88,7 +115,11 @@ def compile_with_hybrid_template_binding(
     config: ResumeQAConfig,
     decision: ExecutionDecision,
 ) -> tuple[QueryPlan, dict[str, Any]]:
-    """将语义计划中的compilewithhybrid模板绑定编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+    """在 hybrid mode 下选择 template 或 generic 编译路径。
+
+    ExecutionDecision 命中 workflow_template 时走稳定模板；否则回落到
+    generic tool binding。
+    """
     if decision.compiler == "workflow_template":
         plan = compile_with_workflow_templates(question, router_output, semantic_plan, session_context=session_context, config=config, workflow_name=decision.workflow_name)
         meta = compiler_trace_meta(semantic_plan, plan, mode="hybrid_template_binding", flags=config.compiler_flags(), router_output=router_output, strategy="workflow_template", workflow_name=decision.workflow_name)
@@ -114,7 +145,11 @@ def compile_with_generic_tool_binding(
     session_context: dict | None,
     config: ResumeQAConfig,
 ) -> tuple[QueryPlan, dict[str, Any]]:
-    """将语义计划中的compilewithgeneric工具绑定编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+    """把 generic 路径的 tool hints 编译成 QueryPlan。
+
+    这里会检查 registry、allowed/forbidden tools、candidate source contract，
+    只有通过检查的 hint 才会变成 ToolCallSpec。
+    """
     registry = get_tool_registry()
     sub_tasks: list[SubTaskPlan] = []
     source_registry: dict[str, Any] = {}
@@ -166,7 +201,9 @@ def compile_with_generic_tool_binding(
             calls.append(call)
         if step.intent == "candidate_filter" and scenario == "open_recall" and should_use_hybrid_recall(question, router_output):
             calls = [call for call in calls if not is_candidate_source_tool(call.name)]
-            calls.insert(0, hybrid_source_call(tool_query(question, step.intent, router_output), router_output, session_context, config=config))
+            query = preference_recall_query(question, router_output) or tool_query(question, step.intent, router_output)
+            if query:
+                calls.insert(0, hybrid_source_call(query, router_output, session_context, config=config))
         sub_tasks.append(SubTaskPlan(intent=step.intent, tool_calls=calls, requires_jd_criteria=step.requires_jd, requires_evidence=step.requires_evidence))
     if semantic_plan.intent == "compound":
         plan = QueryPlan(intent="compound", is_compound=True, sub_tasks=sub_tasks)
@@ -184,7 +221,7 @@ def compile_with_generic_tool_binding(
 
 
 def _with_ranking_output_limit(plan: QueryPlan, question: str) -> QueryPlan:
-    """Attach current-turn TopK display limits to plan constraints."""
+    """把当前问题里的 TopK 排序展示限制写入 QueryPlan constraints。"""
     limit = ranking_output_limit(question)
     if not limit:
         return plan
@@ -192,7 +229,11 @@ def _with_ranking_output_limit(plan: QueryPlan, question: str) -> QueryPlan:
 
 
 def tool_hints_for_generic_step(step, config: ResumeQAConfig) -> list[ToolHint]:
-    """将语义计划中的工具hintsforgenericstep编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+    """合并单个 SemanticStep 的工具建议。
+
+    来源包括 SemanticStep 自带 hints、tool_policy.yaml 的 preferred hints，
+    以及 workflow template 要求的 compiler_required tools。
+    """
     scenario = step.scenario or ""
     policy = [
         ToolHint(name=str(item["name"]), confidence=float(item.get("confidence", 0.75) or 0.75), source="policy", scenario=scenario)

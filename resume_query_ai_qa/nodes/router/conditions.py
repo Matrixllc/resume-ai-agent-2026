@@ -18,7 +18,7 @@ import re
 
 from resume_query_ai_qa.core.rules.condition_rules import extract_conditions
 from resume_query_ai_qa.core.config import ResumeQAConfig
-from resume_query_ai_qa.core.schemas import RouterOutput, SubIntentEvidence
+from resume_query_ai_qa.core.schemas import RouterOutput
 
 from .finalizer import with_risk_flag
 from . import rules

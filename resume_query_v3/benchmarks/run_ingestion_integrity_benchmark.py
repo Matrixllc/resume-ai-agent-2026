@@ -8,8 +8,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import chromadb
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -202,6 +200,10 @@ def _check_vector(resume_identity: str, config: dict[str, Any]) -> dict[str, Any
     failures: list[str] = []
     if not resume_identity:
         return {"ok": False, "count": 0, "failures": ["resume_identity missing; cannot check vector rows"]}
+    try:
+        import chromadb
+    except ModuleNotFoundError as error:
+        return {"ok": False, "count": 0, "failures": [f"chromadb unavailable: {error}"]}
     persist_dir = Path(config["paths"]["chroma_dir"])
     collection_name = str(config["storage"].get("chroma_collection", "resume_v3_project_chunks")).strip()
     if not persist_dir.exists():

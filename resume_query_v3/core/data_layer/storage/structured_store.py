@@ -31,10 +31,14 @@ class StructuredStore:
                     overview_raw TEXT DEFAULT '',
                     document_profile TEXT DEFAULT '',
                     resolve_mode TEXT DEFAULT '',
-                    compression_ratio REAL DEFAULT 0.0
+                    compression_ratio REAL DEFAULT 0.0,
+                    document_hash TEXT DEFAULT '',
+                    identity_match_source TEXT DEFAULT 'file_hash'
                 )
                 """
             )
+            self._ensure_column(conn, "candidates", "document_hash", "TEXT DEFAULT ''")
+            self._ensure_column(conn, "candidates", "identity_match_source", "TEXT DEFAULT 'file_hash'")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS work_experiences (
@@ -146,6 +150,8 @@ class StructuredStore:
                 str(dict(payload.get("document_profile", {}) or {}).get("value", "")).strip(),
                 str(run_meta.get("resolve_mode", "")).strip(),
                 float(run_meta.get("compression_ratio", 0.0) or 0.0),
+                str(run_meta.get("document_hash", "")).strip(),
+                str(run_meta.get("identity_match_source", "file_hash")).strip(),
             )
             if replaced_existing:
                 conn.execute(
@@ -163,7 +169,9 @@ class StructuredStore:
                         overview_raw = ?,
                         document_profile = ?,
                         resolve_mode = ?,
-                        compression_ratio = ?
+                        compression_ratio = ?,
+                        document_hash = ?,
+                        identity_match_source = ?
                     WHERE resume_identity = ?
                     """,
                     (*candidate_values, resume_identity),
@@ -173,8 +181,9 @@ class StructuredStore:
                     """
                     INSERT INTO candidates (
                         run_id, resume_identity, source_path, name, phone, email, wechat, job_intent,
-                        location_raw, overview_raw, document_profile, resolve_mode, compression_ratio
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        location_raw, overview_raw, document_profile, resolve_mode, compression_ratio,
+                        document_hash, identity_match_source
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (run_id, resume_identity, *candidate_values[1:]),
                 )

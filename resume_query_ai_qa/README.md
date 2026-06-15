@@ -1,11 +1,35 @@
-# resume_query_ai_qa
+# Query-AI
 
-`resume_query_ai_qa` 是 Query-AI 主链实现层。它把自然语言问题变成可验证的
-`QueryPlan`，调用只读 tools，并把工具事实组织成经过校验的答案。
+`resume_query_ai_qa` 是简历问答系统的 Query-AI 主链。它把自然语言问题转换成
+可验证的 `QueryPlan`，按计划调用只读 tools，再把工具事实组织成经过校验的答案。
 
-它不负责简历入库、不写 SQLite/Chroma、不直接读取原始简历文件。
+一句话：
 
-## Graph 主链
+```text
+自然语言简历问题 -> RouterOutput -> QueryPlan -> ToolResult[] -> AggregatedAnswer -> validated answer
+```
+
+它不是简历入库系统，也不是单纯 RAG。这个包的重点是把“问简历”做成可解释、
+可校验、可回归的工程链路：LLM 可以参与理解和生成，但最终必须经过规则、
+工具合同、validator 和 benchmark 约束。
+
+## 本项目做什么
+
+- 理解用户的简历相关问题，识别 intent、scenario、conditions 和上下文需求。
+- 将问题编译成可执行、可验证的 `QueryPlan`。
+- 通过只读 tools 查询候选人、画像、证据、评分和比较材料。
+- 基于工具事实生成答案，并校验数量、候选人名、排序、证据引用、隐私和 layout。
+- 记录 trace、route、repair/fallback 和运行日志，支持排查与回归。
+
+## 本项目不做什么
+
+- 不解析原始简历文件。
+- 不负责简历入库、chunking、embedding 或索引构建。
+- 不写 SQLite、Chroma 或候选人数据。
+- 不绕过 `tools/` 直接读取底层数据。
+- 不绕过 validator 直接把 LLM 输出交给用户。
+
+## 主链路
 
 ```mermaid
 flowchart LR
@@ -30,35 +54,40 @@ flowchart LR
   J -->|ok| K["final"]
 ```
 
-## 包职责
+白话讲：
 
-| 包 | 负责 | 边界 |
-|---|---|---|
-| `graph/` | 注册 LangGraph 节点、条件路由、run 入口。 | 不直接调 tools，不读数据底座。 |
-| `nodes/` | 每个 graph node 的稳定包入口和节点内 helper。 | 不跨层改状态，不绕过 validator。 |
-| `core/` | schema、config、纯规则、LLM 基础设施、answer generation。 | 不 import `nodes`、`graph`、`tools`。 |
-| `tools/` | Query-AI 内部只读 tool wrapper 和 registry。 | 不生成最终答案。 |
-| `scoring/` | JD 评分、候选人排序相关工具能力。 | 不参与 graph 路由。 |
-| `state/` | session context 写回、trace event、state snapshot。 | 不做业务决策。 |
-| `observability/` | 日志 sink、run summary、detail JSON。 | 不改变运行行为。 |
-| `benchmarks/` | 合同测试和上线验收。 | 不承载生产逻辑。 |
+- `router` 理解问题，但不查库、不回答。
+- `condition_normalizer` 把条件标准化，比如 domain、skill、concept、candidate。
+- `execution_policy` 决定走稳定 template，还是走 generic planner。
+- `planner` / `plan_compiler` 生成 `QueryPlan` 和 `ToolCallSpec`。
+- `plan_validator` 执行前检查计划是否合法。
+- `executor` 只按计划调用只读 tools。
+- `execution_validator` 检查工具结果是否满足合同。
+- `aggregator` 基于工具事实组织答案。
+- `answer_validator` 出口前校验最终答案。
+- repair/fallback 只在受控边界内修复，不补造事实。
 
-## Template / Generic
+## 文件夹职责
 
-`execution_policy` 会产出 `ExecutionDecision`：
+| 目录 | 负责什么 | 不要放什么 |
+| --- | --- | --- |
+| `graph/` | LangGraph 编排、节点注册、条件路由、state 初始化、trace 收口。 | 不写 intent 判断、工具调用、答案生成等业务规则。 |
+| `nodes/` | graph 节点入口；每个子目录对应一个阶段。 | 不跨层补事实，不绕过 validator，不直接操作数据底座。 |
+| `core/` | schema、config facade、确定性规则、inspection、LLM client、answer generation。 | 不 import `nodes`、`graph`、`tools`。 |
+| `tools/` | 只读工具 registry 和候选人、画像、证据、评分、比较查询能力。 | 不判断 intent，不选工具，不生成自然语言答案。 |
+| `scoring/` | JD 标准、候选人评分、排序和评分理由。 | 不参与 graph 路由，不读取 graph state。 |
+| `configs/` | YAML 规则真源：intent、scenario、tool policy、template、validation、layout、JD scoring。 | 不放 Python 执行逻辑。 |
+| `benchmarks/` | policy、plan、runtime 等合同测试和上线验收。 | 不承载生产逻辑。 |
+| `state/` | session context、trace event、state snapshot。 | 不做业务决策。 |
+| `observability/` | run summary、detail JSON、日志 sink 和可观测性输出。 | 不改变运行行为。 |
+| `scripts/` | 本地 CLI 和调试入口，如 `run_qa.py`、`query_logs.py`。 | 不作为 graph node，不替代 benchmark。 |
+| `logs/` | 本地运行产物。 | 不作为源码逻辑或配置真源。 |
 
-```text
-compiler = workflow_template | generic_tool_binding
-planner = rule | llm
-workflow_name = 命中的 workflow
-scenarios = 每个 intent 的执行协议
-```
+## 关键设计
 
-`ExecutionDecision.scenarios` 来自 `RouterOutput.scenario_decisions`。`execution_policy`
-只读取 router 已确定的 scenario，并据此选择 template/generic 与 workflow；它不重新解释
-用户问题来判定 scenario。
+### Template / Generic
 
-两条路径：
+Query-AI 有两条计划生成路径：
 
 ```text
 template:
@@ -68,145 +97,159 @@ generic:
 router -> condition_normalizer -> execution_policy -> planner -> plan_compiler
 ```
 
-template 用于稳定高频问题，例如候选人画像、固定 count/list、稳定复合 workflow。
-generic 用于开放召回、未模板化问题或需要 planner 先描述语义步骤的问题。
+- 稳定高频问题走 `workflow_template`，例如固定候选人画像、count/list、稳定复合 workflow。
+- 开放问题走 `generic_tool_binding`，由 planner 先描述语义步骤，再编译成工具计划。
+- 两条路径最终都必须生成 `QueryPlan`，并通过 `plan_validator`。
 
-## Scenario
+### 三层 Validator
 
-`scenario` 表示本次 intent 应该如何执行，不是业务分类名。
+- `plan_validator`：执行前检查计划结构、工具权限、参数绑定和 source contract。
+- `execution_validator`：执行后检查 `ToolResult[]` 是否满足结果合同、证据要求和空结果语义。
+- `answer_validator`：出口前检查答案是否和工具事实一致，包含数量、候选人、排序、证据、隐私和 layout。
 
-| Scenario | 含义 | 典型问题 |
-|---|---|---|
-| `soft_summary` | 候选人画像展示。 | `介绍一下孟连星` |
-| `hard_filter` | 结构化硬筛选。 | `金融领域候选人有哪些？` |
-| `open_recall` | 开放语义召回。 | `可能的金融领域候选人` |
-| `fact_check` | 明确候选人内查证据。 | `孙可欣有能源经历么` |
-| `evidence_lookup` | 不限定候选人的证据查找。 | `谁做过风控项目` |
-| `compare_rank` | 比较、排序、评分。 | `这些人里谁更适合金融岗位` |
-| `out_of_scope` | 非简历问题。 | `今天天气怎么样` |
+Validator 的意义是让系统可以使用 LLM，但不把 LLM 当最终权威。
 
-Scenario 由 router/finalizer 写入 `RouterOutput.scenario_decisions`，表示每个 intent
-应该如何执行。LLM router 优先给出 scenario；如果 LLM 不可用、输出缺字段、
-scenario 不符合 `scenarios.yaml` 允许关系，router 会整包回到 rule fallback。
-finalizer 会保留合法 LLM scenario，并用 rule fallback 补齐缺失或被 guard 改动后的场景。
-它会影响 workflow 命中、planner 是否运行、allowed tools、source contract、
-evidence policy 和 validator 规则。
+### Repair / Fallback
 
-`execution_policy` 只消费 `RouterOutput.scenario_decisions`，不重新解释用户问题。
-API `debug=true` 会返回 `trace.router_scenarios[]`，用于查看每个 scenario 的
-`source`、`reason` 和 `evidence`。
+- `plan_repair` 修复非法 `QueryPlan`，修完必须回到 `plan_validator`。
+- `execution_repair` 只做受控执行后 fallback，例如 open recall 空结果时的安全回退。
+- `answer_rewrite` 尝试重写答案，但仍必须回到 `answer_validator`。
+- `rule_answer_fallback` 用确定性规则生成兜底答案。
 
-## 配置入口
+Repair 和 fallback 都不能新增未经工具支持的事实。
 
-YAML 配置统一在 `resume_query_ai_qa/configs/`：
+### YAML 是规则真源
 
-| 文件 | 作用 |
-|---|---|
-| `intents.yaml` | intent 定义、证据/JD 默认要求。 |
-| `scenarios.yaml` | scenario 定义、allowed intents 和执行语义。 |
-| `router_rules.yaml` | router guard、上下文、open recall 触发词。 |
-| `../shared_taxonomy` | domain/concept/skill/major 的唯一共享 taxonomy；QA 代码通过 `core/rules/taxonomy.py` 访问。 |
-| `condition_rules.yaml` | 条件类型、抽取、清洗和 preference target 规则。 |
+运行时规则优先沉淀在 `configs/`：
+
+| YAML | 主要作用 |
+| --- | --- |
+| `intents.yaml` | intent 定义和默认证据/JD 要求。 |
+| `scenarios.yaml` | scenario catalog 和 allowed intent 关系。 |
+| `router_rules.yaml` | router fallback、guard、上下文和开放召回信号。 |
+| `condition_rules.yaml` | condition 抽取、清洗、taxonomy 映射。 |
 | `compiler_templates.yaml` | 稳定 workflow template。 |
-| `tool_policy.yaml` | generic compiler 工具白名单、推荐、禁止。 |
-| `aggregator_tasks.yaml` | answer generation task 类型、选择规则和生成合同。 |
-| `answer_layouts.yaml` | 答案结构、layout 和写作合同。 |
-| `validation.yaml` | validator 边界配置。 |
-| `evidence_policy.yaml` | 最小证据规则。 |
-| `llm.yaml` | LLM provider/model。 |
-| `jd_scoring.yaml` | JD scoring 配置；本轮架构审查不改造 `scoring/jd.py`。 |
+| `tool_policy.yaml` | 工具白名单、推荐、禁止、binding kind 和 fallback tool。 |
+| `validation.yaml` | validator、repair、retry 和 issue action。 |
+| `evidence_policy.yaml` | 最小证据要求和空证据表达。 |
+| `answer_layouts.yaml` | 答案结构和 layout contract。 |
+| `aggregator_tasks.yaml` | answer task 类型和生成合同。 |
+| `jd_scoring.yaml` | JD scoring 权重、默认标准路径和评分开关。 |
+| `llm.yaml` | LLM provider、model、timeout 和 retry。 |
 
-## YAML 使用矩阵
+Python 负责执行算法和守边界；YAML 负责表达业务规则和合同。
 
-| YAML | Runtime 消费方 | 共用规则边界 |
-|---|---|---|
-| `configs/intents.yaml` | router/finalizer、planner/compiler 默认 intent 语义、validator 合同。 | intent 名称和默认 evidence/JD 要求只能从这里进入 QA runtime。 |
-| `configs/scenarios.yaml` | router/finalizer 写入 canonical scenario；execution_policy、compiler、validator 消费。 | `execution_policy` 只读取 `RouterOutput.scenario_decisions`，不重新判断 scenario。 |
-| `configs/router_rules.yaml` | router guard、context resolver、open recall/sensitive/interview 信号。 | 不承载 domain/concept/skill canonical 别名；这些必须走 shared taxonomy。 |
-| `configs/condition_rules.yaml` + `../shared_taxonomy/*` | condition_normalizer、candidate_mentions、tools/common、compiler query/filter args。 | domain/concept/skill/major 只能通过 `core/rules/taxonomy.py` 和 `condition_rules.py` 间接访问。 |
-| `configs/compiler_templates.yaml` | execution_policy 命中 workflow，plan_compiler 编译 template，plan_validator 校验 source/artifact contract。 | 稳定 workflow 从这里沉淀，不在 compiler/validator 私有硬编码。 |
-| `configs/tool_policy.yaml` | planner/compiler 工具白名单、推荐、禁止；validator 工具契约；execution_repair fallback_tool。 | tool allowed/preferred/forbidden、binding_kind、fallback_tool 都以这里为准。 |
-| `configs/validation.yaml` | plan_validator、execution_validator、answer_validator、plan_repair、execution_repair、answer_rewrite。 | issue code、action、clarify/fail/repair 分类统一由 `core/rules/behavior_contract.py` 消费。 |
-| `configs/evidence_policy.yaml` | execution_validator、answer_validator。 | 最小证据要求共用，不在 answer 层重新发明证据阈值。 |
-| `configs/answer_layouts.yaml` + `configs/aggregator_tasks.yaml` | aggregator、answer_validator、answer_rewrite、rule_answer_fallback。 | 答案结构、task mode、layout contract 在配置和 `core/answer_generation/*` 共用。 |
-| `configs/llm.yaml` | router、planner、plan_repair、aggregator、answer_rewrite 的 LLM 基础设施。 | provider/model/开关集中配置，节点只消费 LLM client。 |
-| `configs/jd_scoring.yaml` | scoring/JD 能力。 | 本轮不审查、不改造 `resume_query_ai_qa/scoring/jd.py`。 |
-| `benchmarks/benchmark_cases.yaml` | benchmarks。 | 测试用例，不是 runtime 规则。 |
-| `resume_query_v3/configs/*.yaml` | v3 入库、解析、chunking、validate。 | 入库链路配置，不参与 Query-AI runtime 规则判断。 |
+### 只读 Tools
 
-## 共用规则结论
+`tools/` 是 executor 真正调用的能力集合。上游决定“调用哪个工具、传什么参数”，
+工具只读取事实材料并返回结构化结果。
 
-- Router、execution_policy、compiler、validator 共用 `scenarios.yaml` 和 `RouterOutput.scenario_decisions`：router/finalizer 负责判断 scenario，后续节点只消费。
-- Condition normalizer、candidate mentions、tools/common、compiler query/filter args 共用 `condition_rules.yaml` 和 `shared_taxonomy/*`：taxonomy 的唯一 QA 访问层是 `core/rules/taxonomy.py`。
-- Planner、compiler、validator、execution_repair 共用 `tool_policy.yaml`：工具可用性、binding、fallback 不允许散落在节点私有表里。
-- Plan validator、execution validator、answer validator、plan_repair、execution_repair 共用 `validation.yaml`：错误分类和 repair/fail/clarify action 统一由 `core/rules/behavior_contract.py` 承载。
-- Execution validator 和 answer validator 共用 `evidence_policy.yaml`：证据覆盖规则不在答案层重复维护。
-- Aggregator、answer_validator、answer_rewrite、rule_answer_fallback 共用 `answer_layouts.yaml`、`aggregator_tasks.yaml` 和 `core/answer_generation/*`。
+工具可以返回候选人、画像、证据、评分、比较材料；不能生成最终自然语言答案，
+也不能替 planner 决定工具链。
 
-Compiler、validator、repair 不是三套规则：
+### Scoring / JD
 
-- `plan_compiler` 通过 `core/rules/plan_building.py`、`compiler_templates.yaml`、`tool_policy.yaml` 生成 `QueryPlan`。
-- `plan_validator` 通过 `plan_structure`、`plan_boundaries`、`plan_artifacts`、`plan_semantics` 校验，并消费同一份 `tool_policy.yaml`、`compiler_templates.yaml`、`validation.yaml` 和 router-owned scenario。
-- `plan_repair` 通过 `core/rules/behavior_contract.validation_action()` 和 `plan_building` 重建计划，修复后必须回到 `plan_validator` 复核。
-- `execution_repair` 同样走 `validation_action()`，只在 `open_recall` 空检索时基于 `tool_policy.yaml.fallback_tool` 做受控 fallback。
+`scoring/` 是确定性 JD 评分内核：
 
-结论：Compiler 负责生成，validator 负责只读校验，repair 负责按同一套
-validation/tool/plan_building 规则修复；三者不是三套规则。
+```text
+configs/jd_scoring.yaml + scoring/JD.md + CandidateBrief + EvidenceRef[]
+-> JDScoringCriteria
+-> CandidateScore[]
+```
 
-新增场景优先顺序：
+`executor` 不直接调用 `scoring/jd.py`，而是通过 `tools/scoring_tools.py` adapter 使用评分能力。
+默认岗位标准库位于 `resume_query_ai_qa/scoring/JD.md`。
 
-1. 稳定高频问题先加 `compiler_templates.yaml`。
-2. 开放问题先加 `tool_policy.yaml`，跑 generic，稳定后再沉淀 template。
-3. 新工具必须先实现只读 tool、注册 registry，再加 policy 和 benchmark。
-4. 新答案样式改 `answer_layouts.yaml`，不要在前端补事实。
+## 开发注意事项
 
-## 可观测性
-
-每次 run 都有 `trace_id`。默认 API 返回最小 `trace.diagnosis`；`debug=true`
-返回完整 trace summary。
-
-常用字段：
-
-- `diagnosis.headline`：本轮可读诊断。
-- `decision_steps[]`：每个 node 的 `status`、`summary`、error、warning。
-- `route_events[]`：validator 路由到 execute、repair、fail、clarify、fallback 的原因。
-- `validation_errors.plan/execution/answer`：三层 validator 错误。
-- `log_file_hint`：detail JSON 定位提示。
-
-日志操作手册见 [../QUERY_AI_LOGS.md](../QUERY_AI_LOGS.md)。
-
-## 评估指标与后续量化方向
-
-当前项目已经具备合同 benchmark、分层 validator 和 trace 日志，后续可以在
-不改变主链路的情况下沉淀量化指标。
-
-| 指标 | 含义 | 数据来源 |
-|---|---|---|
-| Router Accuracy | `intent`、`sub_intents`、`scenario_decisions` 是否符合 benchmark 期望。 | `benchmark_cases.yaml`、`trace.router_output`、policy benchmark |
-| Plan Pass Rate | `QueryPlan` 是否一次通过 `plan_validator`。 | `trace.plan_validation_errors`、plan benchmark |
-| Evidence Coverage Rate | evidence-required intent 是否拿到满足策略的 `EvidenceRef`；可区分真实证据命中和可回答空证据。 | `evidence_policy.yaml`、execution validator |
-| Answer Validation Pass Rate | 答案是否通过事实、证据、排序、隐私和 layout 校验。 | `trace.answer_validation_errors`、runtime benchmark |
-| Repair / Fail Rate | plan repair、execution repair、answer rewrite、fail 的触发比例。 | `trace.route_events[]` |
-
-这些指标尚未做成独立 dashboard，但现有 trace 与 benchmark 已经提供统计基础。
-项目当前优先完成的是工业化 Agent 主链路：LLM draft、规则收口、工具合同、
-validator 防线、repair 闭环和可观测 trace。后续如果继续推进，可以先让
-benchmark 输出 JSON report，再按 case family 统计 pass rate、repair rate 和
-evidence coverage。
+- 新增 intent：先改 `configs/intents.yaml`，再补 router/compiler/validator 需要的规则和 benchmark。
+- 新增 scenario：先改 `configs/scenarios.yaml`，确认 allowed intents 和 execution semantics。
+- 新增稳定 workflow：优先沉淀到 `configs/compiler_templates.yaml`。
+- 新增工具：先实现只读 tool，再注册 `TOOL_REGISTRY`，再补 `tool_policy.yaml` 和 benchmark。
+- 新答案样式：优先改 `answer_layouts.yaml` 和 renderer，不要在前端补事实。
+- 调整证据口径：改 `evidence_policy.yaml`，不要在 answer 层重复维护阈值。
+- 调整 JD 评分口径：改 `jd_scoring.yaml` 或 `scoring/JD.md`，不要让 aggregator 私自重排。
+- `graph/` 只做编排，不写业务规则。
+- `core/` 保持共享、稳定、低耦合，不反向依赖 graph/nodes/tools。
+- `tools/` 保持只读，不做 route、repair 或自然语言生成。
+- `推荐` 这类动作词只用于 router intent/ranking 语义，不应作为 taxonomy concept condition。
 
 ## 当前生产契约
 
 - hard filter 空结果是事实答案，不扩大召回。
 - open recall 空候选只允许受控 `query_fallback`。
 - evidence tool 正常返回 0 条证据是 answerable，不进入检索回退。
-- answer 必须说明“未查到/不能确认”，并记录 `empty_evidence:*` warning。
+- answer 必须说明“未查到/不能确认”，并记录空证据 warning。
 - out-of-scope 不执行简历 tools。
-- 缺少所需上下文统一进入 `needs_clarification + required_context_missing`。
+- 缺少所需上下文统一进入 `needs_clarification`。
+
+## 常用命令
+
+本地跑一轮 Query-AI：
+
+```bash
+.venv/bin/python -m resume_query_ai_qa.scripts.run_qa "推荐运营领域的候选人" --no-llm --answer-only
+.venv/bin/python -m resume_query_ai_qa.scripts.run_qa "谁最适合运营岗位？" --no-llm --answer-only
+```
+
+查看 trace：
+
+```bash
+.venv/bin/python -m resume_query_ai_qa.scripts.run_qa "推荐运营领域的候选人" --no-llm --show-trace
+```
+
+查看运行日志：
+
+```bash
+.venv/bin/python -m resume_query_ai_qa.scripts.query_logs list --limit 5
+.venv/bin/python -m resume_query_ai_qa.scripts.query_logs failures --limit 5
+```
+
+合同回归：
+
+```bash
+.venv/bin/python resume_query_ai_qa/benchmarks/run_policy_contract_benchmark.py
+.venv/bin/python resume_query_ai_qa/benchmarks/run_plan_contract_benchmark.py
+.venv/bin/python resume_query_ai_qa/benchmarks/run_runtime_contract_benchmark.py
+```
+
+## 面试讲解重点
+
+可以按这条线讲：
+
+```text
+用户问题不是直接进 LLM，而是先被 router 结构化；
+结构化意图再被编译成 QueryPlan；
+executor 只按 QueryPlan 调只读工具；
+工具结果经过 execution validator；
+答案由 aggregator 基于工具事实生成；
+最终还要过 answer validator 才能返回。
+```
+
+亮点：
+
+- 可控 Agent：LLM 是 draft，不是最终权威。
+- 配置驱动：intent、scenario、tool policy、answer layout 尽量在 YAML 中表达。
+- 三层防线：plan、execution、answer 都有 validator。
+- 可回归：benchmark 覆盖 policy、plan、runtime 行为。
+- 可观测：trace 和 logs 能解释每一步为什么这么走。
+
+一句话收束：
+
+```text
+这个项目的重点不是把 LLM 接上去，而是把“问简历”拆成可解释、可验证、可回归的工程链路。
+```
 
 ## 阅读顺序
 
 1. 节点索引：[nodes/README.md](nodes/README.md)
 2. Graph 编排：[graph/README.md](graph/README.md)
-3. Trace 状态：[state/README.md](state/README.md)
-4. 日志落盘：[observability/README.md](observability/README.md)
-5. 部署验收：[benchmarks/DEPLOYMENT_ACCEPTANCE.md](benchmarks/DEPLOYMENT_ACCEPTANCE.md)
+3. 核心规则：[core/README.md](core/README.md)
+4. 只读工具：[tools/README.md](tools/README.md)
+5. YAML 配置：[configs/README.md](configs/README.md)
+6. JD 评分：[scoring/README.md](scoring/README.md)
+7. Trace 状态：[state/README.md](state/README.md)
+8. 日志落盘：[observability/README.md](observability/README.md)
+9. 本地脚本：[scripts/README.md](scripts/README.md)
+10. 合同测试：[benchmarks/README.md](benchmarks/README.md)
+11. 面试疑问速查：[INTERVIEW_QA_README.md](INTERVIEW_QA_README.md)

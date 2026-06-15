@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any, Iterable
 
-from resume_query_ai_qa.core.schemas import AggregatedAnswer, QueryPlan, RouterOutput, SemanticPlan
+from resume_query_ai_qa.core.schemas import AggregatedAnswer, QueryPlan, RouterOutput
 
 
 def build_router_prompt(*, question: str, intents: dict[str, Any], scenarios: dict[str, Any]) -> str:

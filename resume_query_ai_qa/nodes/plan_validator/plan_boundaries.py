@@ -1,4 +1,14 @@
-"""Plan boundary checks for count, ranking, and pair comparison."""
+"""Plan boundary checks for count, ranking, and pair comparison.
+
+这个文件负责什么：
+- 检查特定 intent 的硬边界。
+- count/ranking/compare 这类 intent 不能只靠通用结构检查。
+
+应该从哪个函数读起：
+- validate_compare_boundaries
+- validate_ranking_boundaries
+- validate_count_boundaries
+"""
 
 from __future__ import annotations
 
@@ -16,7 +26,7 @@ from resume_query_ai_qa.core.schemas import QueryPlan
 
 
 def validate_compare_boundaries(plan: QueryPlan, config: ResumeQAConfig) -> List[str]:
-    """校验双人比较边界并返回错误列表。"""
+    """校验 candidate_compare_pair 是否刚好限定两个候选人。"""
     errors: List[str] = []
     compare = dict(config.validation.get("compare_pair", {}) or {})
     exact_count = int(compare.get("exact_candidate_count", 2) or 2)
@@ -33,10 +43,9 @@ def validate_compare_boundaries(plan: QueryPlan, config: ResumeQAConfig) -> List
 
 
 def validate_ranking_boundaries(plan: QueryPlan, config: ResumeQAConfig) -> List[str]:
-    """校验排序计划边界并返回错误列表。"""
+    """校验 candidate_ranking 是否包含 criteria、score 和 rank。"""
     errors: List[str] = []
     ranking = dict(config.validation.get("ranking", {}) or {})
-    default_jd_tool = str(ranking.get("default_jd_tool", "load_default_jd_criteria") or "")
     for intent, calls in _intent_calls(plan):
         if intent != "candidate_ranking":
             continue
@@ -50,7 +59,7 @@ def validate_ranking_boundaries(plan: QueryPlan, config: ResumeQAConfig) -> List
 
 
 def validate_count_boundaries(plan: QueryPlan, config: ResumeQAConfig | None = None) -> List[str]:
-    """校验计数计划边界并返回错误列表。"""
+    """校验 candidate_count 是否有候选来源并调用 count_candidates。"""
     errors: List[str] = []
     all_calls = [call for _intent, calls in _intent_calls(plan) for call in calls]
     candidate_sources = set(config.tools_with_role("candidate_source")) if config else set()

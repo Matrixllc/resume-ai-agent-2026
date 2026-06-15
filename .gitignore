@@ -4,9 +4,12 @@ __pycache__/
 *.pyc
 .DS_Store
 .idea/
+.playwright-cli/
 
 node_modules/
 .next/
+.next-dev/
+.next-build-watch/
 dist/
 build/
 *.tsbuildinfo
@@ -17,6 +20,8 @@ resume_query_v3/logs/
 resume_query_v3/benchmarks/reports/
 
 documents/
+resume/*
+!resume/.gitkeep
 resume_query_v3/resume/
 vector_db/
 *.db

@@ -11,6 +11,90 @@ cases:
       scenarios: {candidate_count: hard_filter, candidate_list: hard_filter}
       status: ok
 
+  - id: scoped_computer_count_list_evidence
+    family: scoped_count_list_evidence
+    question: "有多少个计算机领域候选人，都有谁？证据在哪里"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: compound
+      sub_intents: [candidate_filter, candidate_count, candidate_list, evidence_question]
+      scenarios: {candidate_filter: hard_filter, candidate_count: hard_filter, candidate_list: hard_filter, evidence_question: evidence_lookup}
+      status: ok
+    safety:
+      required_tools: [filter_candidates, count_candidates, search_candidate_evidence]
+      forbidden_tools: [resolve_candidate_reference, get_candidate_profiles_intro, get_candidate_profile_intro]
+      required_filter_args:
+        domains_any: ["计算机"]
+      candidate_evidence_ids_from_candidate_pool: true
+
+  - id: scoped_energy_list_project_evidence
+    family: scoped_list_evidence
+    question: "能源领域候选人都有谁，每个人的项目经历是什么"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: compound
+      sub_intents: [candidate_list, evidence_question]
+      scenarios: {candidate_list: hard_filter, evidence_question: evidence_lookup}
+      forbidden_candidate_names: [每个人, 每个人的, 每位, 各自, 分别]
+      status: ok
+    safety:
+      required_tools: [filter_candidates, search_candidate_evidence]
+      forbidden_tools: [resolve_candidate_reference, get_candidate_profiles_intro, get_candidate_profile_intro]
+      required_filter_args:
+        domains_any: ["Energy"]
+      candidate_evidence_ids_from_candidate_pool: true
+
+  - id: scoped_finance_list_project_evidence
+    family: scoped_list_evidence
+    question: "金融领域候选人都有谁，每个人的项目经历是什么"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: compound
+      sub_intents: [candidate_list, evidence_question]
+      scenarios: {candidate_list: hard_filter, evidence_question: evidence_lookup}
+      forbidden_candidate_names: [每个人, 每个人的, 每位, 各自, 分别]
+      status: ok
+    safety:
+      required_tools: [filter_candidates, search_candidate_evidence]
+      forbidden_tools: [resolve_candidate_reference, get_candidate_profiles_intro, get_candidate_profile_intro]
+      required_filter_args:
+        domains_any: ["Finance"]
+      candidate_evidence_ids_from_candidate_pool: true
+
+  - id: scoped_operations_list_project_evidence
+    family: scoped_list_evidence
+    question: "运营领域候选人有哪些，各自有什么项目"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: compound
+      sub_intents: [candidate_list, evidence_question]
+      scenarios: {candidate_list: hard_filter, evidence_question: evidence_lookup}
+      forbidden_candidate_names: [每个人, 每个人的, 每位, 各自, 分别]
+      status: ok
+    safety:
+      required_tools: [filter_candidates, search_candidate_evidence]
+      forbidden_tools: [resolve_candidate_reference, get_candidate_profiles_intro, get_candidate_profile_intro]
+      required_filter_args:
+        domains_any: ["Operations"]
+      candidate_evidence_ids_from_candidate_pool: true
+
+  - id: scoped_computer_list_project_evidence
+    family: scoped_list_evidence
+    question: "计算机领域候选人有哪些，分别的项目经历是什么"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: compound
+      sub_intents: [candidate_list, evidence_question]
+      scenarios: {candidate_list: hard_filter, evidence_question: evidence_lookup}
+      forbidden_candidate_names: [每个人, 每个人的, 每位, 各自, 分别]
+      status: ok
+    safety:
+      required_tools: [filter_candidates, search_candidate_evidence]
+      forbidden_tools: [resolve_candidate_reference, get_candidate_profiles_intro, get_candidate_profile_intro]
+      required_filter_args:
+        domains_any: ["计算机"]
+      candidate_evidence_ids_from_candidate_pool: true
+
   - id: open_recall_count_list
     family: open_recall
     question: "可能有运营领域经验的候选人都有谁，有多少个？"
@@ -38,6 +122,43 @@ cases:
       intent: candidate_filter
       scenarios: {candidate_filter: open_recall}
       status: ok
+
+  - id: backend_open_recall_preference_target
+    family: open_recall
+    question: "找找后端开发相关候选人"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: candidate_filter
+      scenarios: {candidate_filter: open_recall}
+      status: ok
+    safety:
+      required_tools: [hybrid_search_candidates]
+
+  - id: recommend_operations_candidates_action_word
+    family: hard_filter
+    question: "推荐运营领域的候选人"
+    tiers: [policy, plan]
+    expected:
+      intent: candidate_filter
+      scenarios: {candidate_filter: hard_filter}
+      status: ok
+    safety:
+      required_filter_args:
+        domains_any: ["Operations"]
+      forbidden_filter_args:
+        concepts_all: ["推荐系统"]
+
+  - id: recommendation_system_candidates_concept
+    family: hard_filter
+    question: "找出有推荐系统经验的候选人"
+    tiers: [policy, plan]
+    expected:
+      intent: candidate_filter
+      scenarios: {candidate_filter: hard_filter}
+      status: ok
+    safety:
+      required_filter_args:
+        concepts_all: ["推荐系统"]
 
   - id: profile
     family: profile
@@ -77,6 +198,17 @@ cases:
     safety:
       required_filter_args:
         domains_any: ["Finance"]
+
+  - id: backend_job_fit_ranking
+    family: ranking
+    question: "适合后端开发岗位的候选人"
+    tiers: [policy, plan, runtime]
+    expected:
+      intent: candidate_ranking
+      scenarios: {candidate_ranking: compare_rank}
+      status: ok
+    safety:
+      required_tools: [load_default_jd_criteria, score_candidates_for_jd, rank_candidates]
 
   - id: ranking_recommend_finance_top3
     family: ranking

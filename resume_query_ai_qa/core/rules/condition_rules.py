@@ -126,6 +126,7 @@ def filter_arguments_from_conditions(
     question: str = "",
     *,
     include_preference_domains: bool = False,
+    include_preference_targets: bool = False,
 ) -> dict[str, Any]:
     """从条件集合提取筛选参数集合并返回。"""
     args: dict[str, Any] = {}
@@ -139,7 +140,18 @@ def filter_arguments_from_conditions(
         if not value:
             continue
         if condition.matched_by.startswith("preference_target:"):
-            if include_preference_domains and condition.type == "domain":
+            if include_preference_targets:
+                if condition.type == "domain":
+                    domains.append(value)
+                elif condition.type == "skill":
+                    skills.append(value)
+                elif condition.type == "concept":
+                    concepts.append(value)
+                elif condition.type == "job_intent":
+                    keywords.extend(condition.retrieval_terms or [value])
+                elif condition.type in {"keyword", "experience"}:
+                    keywords.append(value)
+            elif include_preference_domains and condition.type == "domain":
                 domains.append(value)
             continue
         if condition.type == "domain":

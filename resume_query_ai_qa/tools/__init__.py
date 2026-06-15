@@ -1,4 +1,8 @@
-"""Deterministic read-only tool wrappers for resume QA."""
+"""Stable public exports for deterministic read-only resume QA tools.
+
+上层代码优先通过 get_tool_registry() 调用工具；这里保留直接导出是为了兼容
+已有 import 路径。
+"""
 
 from .registry import (
     TOOL_REGISTRY,

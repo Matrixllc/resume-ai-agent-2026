@@ -1,4 +1,14 @@
-"""Candidate reference and pronoun resolution tools."""
+"""Candidate reference and pronoun resolution tools.
+
+这个文件负责什么：
+  把“第一名/这些人/刚才那个人/某个姓名”等文本引用解析为 candidate ids。
+
+应该从哪个函数读起：
+  resolve_candidate_reference()。
+
+不会负责什么：
+  不查画像、不排序、不比较、不生成答案；只解析候选人引用。
+"""
 
 from __future__ import annotations
 
@@ -156,12 +166,12 @@ def resolve_candidate_reference(
 
 
 def _looks_like_multi_profile_request(text: str) -> bool:
-    """判断多个候选人画像请求是否成立并返回布尔值。"""
+    """判断文本是否像多个候选人的画像/经历展示请求。"""
     return any(token in str(text or "") for token in ["个人信息", "信息展示", "展示", "显示", "介绍", "资料", "经历", "背景", "profile"])
 
 
 def _candidate_aliases(candidate: CandidateBrief) -> List[str]:
-    """获取候选人别名集合并返回。"""
+    """生成候选人的 ID、姓名、短名、拼音等可匹配别名。"""
     name = str(candidate.name or "").strip()
     aliases = {candidate.resume_identity, name}
     if 2 <= len(name) <= 4 and not re.search(r"[A-Za-z\s]", name):
@@ -177,7 +187,7 @@ def _candidate_aliases(candidate: CandidateBrief) -> List[str]:
     return [normalize_key(alias) for alias in aliases if str(alias).strip()]
 
 def _fuzzy_candidate_matches(text: str, candidates: List[CandidateBrief]) -> List[Dict[str, Any]]:
-    """匹配模糊候选人结果并返回匹配结果。"""
+    """根据候选人提及词，对候选人列表做模糊匹配并按置信度排序。"""
     mentions = _candidate_reference_mentions(text)
     if not mentions:
         return []
@@ -205,11 +215,11 @@ def _fuzzy_candidate_matches(text: str, candidates: List[CandidateBrief]) -> Lis
     return sorted(matches, key=lambda item: (-float(item["score"]), str(item.get("name", "")), str(item.get("resume_identity", ""))))
 
 def _candidate_reference_mentions(text: str) -> List[str]:
-    """获取候选人引用指代集合并返回。"""
+    """从文本中抽取可能指向候选人的提及词。"""
     return extract_candidate_mentions(text, allow_full_text_fallback=True)
 
 def _candidate_match_score(mention: str, candidate: CandidateBrief) -> tuple[float, str]:
-    """匹配候选人评分并返回匹配结果。"""
+    """计算单个提及词和候选人的匹配分数及匹配方式。"""
     mention_key = normalize_key(mention)
     name_key = normalize_key(candidate.name)
     if not mention_key or not name_key:
@@ -242,7 +252,7 @@ def _candidate_match_score(mention: str, candidate: CandidateBrief) -> tuple[flo
     return 0.0, ""
 
 def _match_candidate_payloads(candidates: List[CandidateBrief], *, score: float, matched_by: str) -> List[Dict[str, Any]]:
-    """匹配结果候选人载荷集合并返回匹配结果。"""
+    """把候选人对象转成 clarification/debug 可展示的匹配候选列表。"""
     return [
         {
             "resume_identity": candidate.resume_identity,
@@ -254,7 +264,7 @@ def _match_candidate_payloads(candidates: List[CandidateBrief], *, score: float,
     ]
 
 def _pinyin_aliases(name: str) -> List[str]:
-    """获取拼音别名集合并返回。"""
+    """为中文姓名生成拼音、名在前等别名，提升模糊解析召回。"""
     try:
         from pypinyin import lazy_pinyin  # type: ignore
     except Exception:

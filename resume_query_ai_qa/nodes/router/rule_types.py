@@ -46,6 +46,10 @@ class RouterSignals:
     discovery: bool = False
     project_listing: bool = False
     evidence_locator: bool = False
+    domain_scope: bool = False
+    collection_request: bool = False
+    per_person_request: bool = False
+    scoped_project_evidence_request: bool = False
     single_candidate_fit: bool = False
     context_pool_priority: bool = False
     interview_question: bool = False

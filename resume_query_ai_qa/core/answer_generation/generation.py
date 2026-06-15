@@ -1,4 +1,14 @@
-"""答案生成公共 facade，保持 aggregator/rewrite/fallback 的旧入口兼容。"""
+"""Answer generation facade for aggregator, rewrite, and fallback.
+
+这个文件负责什么：
+  对外提供答案生成入口；把确定性 grounding、LLM fill/rewrite 和 trace meta 串起来。
+
+应该从哪个函数读起：
+  aggregator 路径读 aggregate_answer_with_meta()。
+
+不会负责什么：
+  不调用工具，不查库，不新增事实；事实来自 ToolResult 构建的 grounded context。
+"""
 
 from __future__ import annotations
 
@@ -54,7 +64,7 @@ def aggregate_answer_with_meta(
     execution_decision: ExecutionDecision | None = None,
     router_output: RouterOutput | None = None,
 ) -> tuple[AggregatedAnswer, dict[str, Any]]:
-    """聚合答案并返回 trace meta；规则 grounding 是事实源，LLM 只做受控填充。"""
+    """生成聚合答案；LLM 基于 query/framework/tool facts 产出文本，grounded 负责事实收口。"""
     cfg = config or load_config()
     inputs = prepare_answer_inputs(
         question,

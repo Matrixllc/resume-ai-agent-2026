@@ -174,6 +174,17 @@ def apply_compound_guard(output: RouterOutput, question: str, config: ResumeQACo
     复合问题纠偏。比如“有几个，谁最强，依据是什么”会补出
     candidate_count / candidate_ranking / evidence_question。
     """
+    if looks_like_scoped_collection_project_query(question, config):
+        return copy_with_guard_flags(
+            output,
+            "compound_guard_applied",
+            "llm_router_contract_overridden_by_rule_guard",
+            intent="compound",
+            is_compound=True,
+            sub_intent_candidates=["candidate_list", "evidence_question"],
+            requires_evidence=True,
+            scenario_decisions={},
+        )
     detected = detect_compound_sub_intents(question, config)
     if len(detected) <= 1:
         return output
@@ -188,6 +199,18 @@ def apply_compound_guard(output: RouterOutput, question: str, config: ResumeQACo
         intent="compound",
         is_compound=True,
         sub_intent_candidates=sub_intents,
+    )
+
+
+def looks_like_scoped_collection_project_query(question: str, config: ResumeQAConfig) -> bool:
+    """Return true for scoped list queries that ask project evidence per person."""
+    conditions = extract_conditions(question)
+    has_scope = any(condition.type in {"domain", "major", "skill", "concept", "job_intent"} for condition in conditions)
+    return bool(
+        has_scope
+        and contains_config_terms(question, config, "signals", "collection_request_terms")
+        and contains_config_terms(question, config, "signals", "per_person_terms")
+        and contains_config_terms(question, config, "signals", "project_terms")
     )
 
 

@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Protocol
 
-import chromadb
-
 from .structured_store import StructuredStore
 
 
@@ -58,10 +56,21 @@ class JsonVectorBackend:
         self.file_path.write_text(json.dumps([*retained, *payloads], ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def clear_chroma_system_cache() -> None:
+    try:
+        from chromadb.api.client import SharedSystemClient
+
+        SharedSystemClient.clear_system_cache()
+    except Exception:
+        pass
+
+
 class ChromaVectorBackend:
     def __init__(self, *, persist_dir: Path, collection_name: str):
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
+        self._assert_persist_dir_writable()
+        clear_chroma_system_cache()
         self._client = self._create_client()
         self._collection = self._client.get_or_create_collection(name=collection_name)
 
@@ -100,7 +109,10 @@ class ChromaVectorBackend:
                 }
             )
         if ids:
-            self._collection.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
+            try:
+                self._collection.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
+            except Exception as error:
+                raise RuntimeError(f"Chroma vector write failed: {type(error).__name__}: {error}") from error
 
     def replace_resume_chunk_vectors(self, resume_identity: str, payloads: List[Dict[str, Any]]) -> None:
         identity = str(resume_identity).strip()
@@ -134,7 +146,9 @@ class ChromaVectorBackend:
             except Exception:
                 pass
 
-    def _create_client(self) -> chromadb.PersistentClient:
+    def _create_client(self) -> Any:
+        import chromadb
+
         try:
             return chromadb.PersistentClient(
                 path=str(self.persist_dir),
@@ -143,6 +157,14 @@ class ChromaVectorBackend:
             )
         except Exception:
             return chromadb.PersistentClient(path=str(self.persist_dir))
+
+    def _assert_persist_dir_writable(self) -> None:
+        probe = self.persist_dir / ".write_probe"
+        try:
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except Exception as error:
+            raise RuntimeError(f"Chroma persist directory is not writable: {self.persist_dir}: {error}") from error
 
 
 def build_structured_backend(config: Dict[str, Any]) -> StructuredBackend:

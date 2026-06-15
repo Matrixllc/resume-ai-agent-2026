@@ -39,7 +39,7 @@ def build_comparison_pack(candidate_ids: List[str], domain: str | None = None, q
 
 
 def _comparison_brief(candidate_id: str) -> Dict[str, Any]:
-    """获取比较候选人摘要并返回。"""
+    """构造比较用候选人 brief，并去掉弱标签证据以减少校验噪音。"""
     brief = get_candidate_brief(candidate_id).model_dump()
     # Skill/domain tag refs are weak evidence and create noisy validation
     # warnings. Pair comparison uses the strong project evidence field below.

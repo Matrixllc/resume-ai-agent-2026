@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from resume_query_v3.config import get_config
+from resume_query_v3.core.data_layer.storage.backends import clear_chroma_system_cache
 from resume_query_v3.core.data_layer.storage.job_store import PipelineJobStore
 from resume_query_v3.core.data_layer.storage.structured_store import StructuredStore
 
@@ -56,6 +57,7 @@ def reset_storage(*, config: Dict[str, Any], dry_run: bool = False) -> Dict[str,
         report["would_remove"] = [str(path.relative_to(app_root)) for path in existing_targets]
         return report
 
+    clear_chroma_system_cache()
     backup_dir.mkdir(parents=True, exist_ok=False)
     for path in existing_targets:
         relative = path.relative_to(app_root)
@@ -75,6 +77,7 @@ def reset_storage(*, config: Dict[str, Any], dry_run: bool = False) -> Dict[str,
         report["removed"].append(str(path.relative_to(app_root)))
 
     _recreate_storage(config=config, report=report)
+    clear_chroma_system_cache()
     return report
 
 

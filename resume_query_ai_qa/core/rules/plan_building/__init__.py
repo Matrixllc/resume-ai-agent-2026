@@ -1,7 +1,7 @@
-"""Tool binding and QueryPlan normalization helpers.
+"""Tool binding and QueryPlan normalization public exports.
 
-This package keeps the historic ``core.rules.plan_building`` import path while
-grouping the implementation by responsibility.
+这个包保留历史 ``core.rules.plan_building`` 导入路径，同时把实现按 builders、
+query_args、refs、source_policy 等职责拆开。这里不执行工具、不判断 intent。
 """
 
 from .builders import (
@@ -19,6 +19,8 @@ from .query_args import (
     candidate_reference_text,
     filter_args,
     normalize_spaces,
+    preference_filter_args,
+    preference_recall_query,
     ranking_output_limit,
     sanitize_session_context,
     strip_dialog_context,
@@ -63,6 +65,8 @@ __all__ = [
     "last_output_key",
     "normalize_call",
     "normalize_spaces",
+    "preference_filter_args",
+    "preference_recall_query",
     "normalize_sub_task",
     "plan_calls",
     "ranking_criteria_tool",

@@ -92,7 +92,7 @@ def get_candidate_profiles_intro(
 
 
 def _candidate_names_for_ids(candidate_ids: List[str]) -> List[str]:
-    """根据标识集合生成候选人名称集合并返回。"""
+    """把候选人 ID 列表映射成展示用姓名列表。"""
     id_set = set(candidate_ids)
     output: List[str] = []
     for item in list_all_candidates():

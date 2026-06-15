@@ -350,6 +350,7 @@ class RouterOutput(BaseModel):
     requires_evidence: bool = False
     allowed_tool_names: List[str] = Field(default_factory=list)
     risk_flags: List[str] = Field(default_factory=list)
+    trace_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ValidationIssue(BaseModel):

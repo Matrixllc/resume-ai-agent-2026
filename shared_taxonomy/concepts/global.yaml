@@ -34,7 +34,7 @@ concepts:
     aliases: [springboot, spring boot]
   - name: 推荐系统
     type: concept
-    aliases: [推荐, recommendation]
+    aliases: [推荐系统, recommendation]
   - name: 搜索系统
     type: concept
     aliases: [搜索, search]

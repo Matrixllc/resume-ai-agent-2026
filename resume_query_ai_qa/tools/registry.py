@@ -1,8 +1,15 @@
 """Deterministic read-only QA tool registry.
 
-The implementation lives in focused tool modules. This file is intentionally only
-an import-与-register facade so graph nodes can keep using one stable registry
-entrypoint while tool behavior remains reviewable by domain.
+这个文件负责什么：
+  维护 tool_name -> Python function 的稳定映射，供 executor、validator 和 planner
+  prompt 读取。
+
+应该从哪个函数读起：
+  TOOL_REGISTRY -> get_tool_registry()。
+
+不会负责什么：
+  不实现工具逻辑，不解释 intent，也不判断 tool_policy。工具权限由 compiler /
+  validator 根据 YAML 合同判断。
 """
 
 from __future__ import annotations

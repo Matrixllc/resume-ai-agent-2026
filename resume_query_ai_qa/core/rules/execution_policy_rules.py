@@ -1,3 +1,20 @@
+"""Execution policy rules.
+
+这个文件负责什么：
+- 根据 RouterOutput + compiler_templates.yaml 选择 workflow_template 或 generic_tool_binding。
+- 提供 scenario 读取/规则 fallback helper，供 router finalizer、benchmark、compiler 共用。
+
+应该从哪个函数读起：
+- resolve_execution_decision
+- match_workflow
+- _workflow_matches
+
+不会负责什么：
+- 不重新理解自然语言。
+- 不生成工具参数。
+- 不执行 workflow。
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -108,7 +125,10 @@ def match_workflow(
     scenarios: dict[str, str],
     config: ResumeQAConfig,
 ) -> str:
-    """按 YAML 优先级匹配稳定工作流；无匹配时返回空字符串走通用规划。"""
+    """按 YAML 优先级匹配稳定工作流；无匹配时返回空字符串走通用规划。
+
+    这里只看 workflow.match。tool_calls/sub_tasks 是 plan_compiler 的事。
+    """
     workflows = dict(config.compiler_templates.get("workflows", {}) or {})
     ranked = sorted(
         workflows.items(),
@@ -127,7 +147,11 @@ def match_workflow(
 
 
 def _workflow_matches(router_output: RouterOutput, scenarios: dict[str, str], match: dict[str, Any]) -> bool:
-    """判断路由结果是否满足工作流条件并返回布尔值。"""
+    """判断路由结果是否满足 workflow.match。
+
+    match 里写了什么就检查什么；没写的字段不参与判断。写了的条件
+    必须全部通过，workflow 才算命中。
+    """
     expected_intent = str(match.get("intent", "") or "").strip()
     if expected_intent and router_output.intent != expected_intent:
         return False
@@ -179,7 +203,12 @@ def _router_intents(router_output: RouterOutput) -> list[str]:
 
 
 def _has_required_scope(router_output: RouterOutput) -> bool:
-    """判断必需范围是否成立并返回布尔值。"""
+    """判断 requires_scope 是否成立。
+
+    scope 可以来自候选人池上下文，也可以来自 normalized_conditions 里的
+    domain/skill/concept/keyword/major/job_intent。preference_target 条件只
+    表达评分目标，不当作硬筛选范围。
+    """
     if router_output.context_policy.uses_context and router_output.context_policy.context_ref_type == "candidate_pool":
         return True
     return any(

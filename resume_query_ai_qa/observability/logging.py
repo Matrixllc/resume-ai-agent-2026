@@ -1,11 +1,20 @@
-"""Loguru-backed structured logging for Query-AI runs."""
+"""Loguru-backed structured logging for Query-AI runs.
+
+这个文件负责什么：
+  配置结构化日志 sink，发送运行事件，并把一次查询的摘要/详情写入 logs/。
+
+应该从哪个函数读起：
+  configure_query_ai_logging() -> emit_event() -> write_run_log()。
+
+不会负责什么：
+  不修改 qa.trace 的业务含义，不选择 graph route，不判断 plan/execution/answer 对错。
+"""
 
 from __future__ import annotations
 
 import json
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -105,7 +114,7 @@ def _compact_run_summary(qa: ResumeQAState, created_at: str, trace_id: str) -> d
 
 
 def _execution_path(qa: ResumeQAState) -> list[dict[str, Any]]:
-    """获取执行路径并返回。"""
+    """把 node decision 和 route event 合并为一条人可读的执行路径。"""
     events: list[dict[str, Any]] = []
     for item in qa.trace.decision_log:
         node = str(item.get("node") or "")
@@ -195,7 +204,7 @@ def _failed_at(qa: ResumeQAState) -> dict[str, Any]:
 
 
 def _path_preview(qa: ResumeQAState) -> str:
-    """获取路径预览并返回。"""
+    """把节点决策日志压成 `router -> ... -> final` 形式的路径预览。"""
     nodes = [str(item.get("node") or "") for item in qa.trace.decision_log if item.get("node")]
     return " -> ".join(nodes)
 
@@ -304,7 +313,7 @@ def _tool_result_status(qa: ResumeQAState) -> list[dict[str, Any]]:
 
 
 def _result_shape(value: Any) -> str:
-    """将结果结构形态投影为可观测数据；只做脱敏、压缩或持久化，不改变业务状态。"""
+    """返回工具结果的粗粒度形态，避免日志依赖完整 payload。"""
     if value is None:
         return "none"
     if isinstance(value, list):
@@ -317,14 +326,14 @@ def _result_shape(value: Any) -> str:
 
 
 def _result_count(value: Any) -> int | None:
-    """将结果计数投影为可观测数据；只做脱敏、压缩或持久化，不改变业务状态。"""
+    """对 list/dict 结果给出轻量数量摘要；其他类型不强行解释。"""
     if isinstance(value, (list, dict)):
         return len(value)
     return None
 
 
 def _compact_final_answer(qa: ResumeQAState) -> dict[str, Any]:
-    """将压缩结果收口答案投影为可观测数据；只做脱敏、压缩或持久化，不改变业务状态。"""
+    """压缩最终答案，只保留长度、claim、evidence 和 warning 摘要。"""
     if not qa.answer:
         return {}
     answer_text = qa.answer.answer or ""
@@ -339,7 +348,7 @@ def _compact_final_answer(qa: ResumeQAState) -> dict[str, Any]:
 
 
 def _context_delta(before: dict[str, Any] | None, after: dict[str, Any] | None) -> dict[str, Any]:
-    """将上下文变化投影为可观测数据；只做脱敏、压缩或持久化，不改变业务状态。"""
+    """对比本轮前后 session context，只记录新增或变化的字段。"""
     before = before or {}
     after = after or {}
     delta: dict[str, Any] = {}
@@ -350,12 +359,12 @@ def _context_delta(before: dict[str, Any] | None, after: dict[str, Any] | None) 
 
 
 def _json_equal(left: Any, right: Any) -> bool:
-    """将json相等判断投影为可观测数据；只做脱敏、压缩或持久化，不改变业务状态。"""
+    """用稳定 JSON 序列化比较上下文字段是否等价。"""
     return json.dumps(left, ensure_ascii=False, sort_keys=True, default=str) == json.dumps(right, ensure_ascii=False, sort_keys=True, default=str)
 
 
 def _iter_plan_calls(plan: Any) -> list[Any]:
-    """将iter计划调用投影为可观测数据；只做脱敏、压缩或持久化，不改变业务状态。"""
+    """按执行顺序展开主计划和 sub task 中的工具调用。"""
     calls = list(plan.tool_calls)
     for sub_task in plan.sub_tasks:
         calls.extend(sub_task.tool_calls)
@@ -363,14 +372,14 @@ def _iter_plan_calls(plan: Any) -> list[Any]:
 
 
 def _preview(text: str, limit: int) -> str:
-    """将预览投影为可观测数据；只做脱敏、压缩或持久化，不改变业务状态。"""
+    """生成定长文本预览，避免摘要日志过长。"""
     if len(text) <= limit:
         return text
     return text[:limit].rstrip() + "..."
 
 
 def _safe_payload(fields: dict[str, Any]) -> dict[str, Any]:
-    """将安全载荷载荷投影为可观测数据；只做脱敏、压缩或持久化，不改变业务状态。"""
+    """把任意事件字段转换成 JSON 可序列化的安全 payload。"""
     return json.loads(json.dumps(fields, ensure_ascii=False, default=str))
 
 

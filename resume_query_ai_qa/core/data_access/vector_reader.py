@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict, List
 
 import chromadb
+
+from resume_query_common import get_resume_embedding_config
+from resume_query_common.env import load_repo_env
 
 
 class ResumeVectorReader:
@@ -57,7 +59,7 @@ class ResumeVectorReader:
         query_text = str(query or "").strip()
         if not query_text:
             return {"rows": [], "warnings": ["empty vector query"]}
-        embedding = _embed_query_bge_m3(query_text, warnings)
+        embedding = _embed_query(query_text, warnings)
         if not embedding:
             return {"rows": [], "warnings": warnings or ["query embedding unavailable"]}
         try:
@@ -120,15 +122,45 @@ def parse_metadata_list(value: Any) -> List[str]:
     return [str(item).strip() for item in loaded if str(item).strip()]
 
 
-def _embed_query_bge_m3(query: str, warnings: List[str]) -> List[float]:
-    """调用本地 bge-m3 生成查询向量，失败时写入 warnings 并返回空向量。"""
+def _embed_query(query: str, warnings: List[str]) -> List[float]:
+    """Generate a query vector using the same provider as ingestion."""
+    load_repo_env()
+    config = get_resume_embedding_config()
+    provider = str(config.get("provider", "ollama")).strip().lower()
+    if provider == "openai":
+        return _embed_query_openai(query, config, warnings)
+    return _embed_query_ollama(query, config, warnings)
+
+
+def _embed_query_openai(query: str, config: Dict[str, Any], warnings: List[str]) -> List[float]:
+    """调用 OpenAI 生成查询向量，失败时写入 warnings 并返回空向量。"""
+    try:
+        from langchain_openai import OpenAIEmbeddings
+
+        api_key = str(config.get("openai_api_key", "")).strip()
+        if not api_key:
+            warnings.append("OPENAI_API_KEY is required for OpenAI query embedding")
+            return []
+        embedder = OpenAIEmbeddings(
+            model=str(config.get("model", "text-embedding-3-small")).strip(),
+            api_key=api_key,
+            base_url=str(config.get("openai_base_url", "https://api.openai.com/v1")).strip(),
+        )
+        return list(embedder.embed_query(query) or [])
+    except Exception as error:
+        warnings.append(f"{type(error).__name__}: {error}")
+        return []
+
+
+def _embed_query_ollama(query: str, config: Dict[str, Any], warnings: List[str]) -> List[float]:
+    """调用本地 embedding 模型生成查询向量，失败时写入 warnings 并返回空向量。"""
     try:
         from llama_index.embeddings.ollama import OllamaEmbedding
 
         embedder = OllamaEmbedding(
-            model_name=os.getenv("RESUME_V3_EMBED_MODEL", "bge-m3").strip() or "bge-m3",
-            base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434").strip() or "http://localhost:11434",
-            client_kwargs={"trust_env": False, "timeout": float(os.getenv("OLLAMA_TIMEOUT", "120") or 120)},
+            model_name=str(config.get("model", "bge-m3")).strip() or "bge-m3",
+            base_url=str(config.get("ollama_host", "http://localhost:11434")).strip() or "http://localhost:11434",
+            client_kwargs={"trust_env": False, "timeout": float(config.get("ollama_timeout", 120.0) or 120)},
         )
         return list(embedder.get_query_embedding(query) or [])
     except Exception as error:

@@ -1,4 +1,7 @@
-"""Core read-only access to resume storage."""
+"""Core read-only access to resume storage.
+
+这里提供 SQL/vector/candidate index reader。它不是工具 registry，也不生成 ToolResult。
+"""
 
 from .candidate_index import list_known_candidate_names
 from .config import get_data_access_config

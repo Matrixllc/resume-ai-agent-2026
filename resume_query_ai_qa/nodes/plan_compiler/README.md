@@ -1,90 +1,130 @@
 # Plan Compiler Node
 
-## 职责
+一句话：`plan_compiler` 把 `SemanticPlan + RouterOutput + ExecutionDecision` 编译成 executor 可以执行的 `QueryPlan`。
 
-`plan_compiler` 把 `SemanticPlan` 或 workflow template 降级成 executor 可执行的
-`QueryPlan`。它是第一层允许创建 `ToolCallSpec` 的节点。
-
-## 输入
-
-| 输入 | 来源 | 用途 |
-|---|---|---|
-| `SemanticPlan` | planner 或 rule builder | 语义步骤和 tool hints。 |
-| `ExecutionDecision` | execution_policy | template/generic、workflow、scenario。 |
-| `RouterOutput` | normalizer 后 | normalized conditions、context policy。 |
-| `session_context` | graph state | 绑定候选人、候选池、ranking top。 |
-| tool registry/policy | config + registry | 判断工具是否存在、允许、优先或禁止。 |
-
-## 输出
-
-| 输出 | 用途 |
-|---|---|
-| `QueryPlan` | executor 执行。 |
-| `SubTaskPlan[]` | compound 子任务。 |
-| `ToolCallSpec[]` | 工具名、参数、依赖、输出 key。 |
-| `ArtifactBinding[]` | canonical source、scope、producer/consumer。 |
-| compiler meta | Debug 展示 accepted/rejected tool hints。 |
-
-## 主流程
+## 架构位置
 
 ```text
-workflow_template:
-compiler_templates.yaml -> QueryPlan
+user question
+-> router
+-> condition_normalizer
+-> execution_policy
+   -> template: plan_compiler
+   -> generic: planner -> plan_compiler
+-> plan_validator
+-> executor
+-> aggregator / answer_rewrite
+```
 
-generic_tool_binding:
-SemanticPlan.tool_hints
--> tool_policy + registry + source contract
--> accepted ToolCallSpec / rejected hints
+`plan_compiler` 是第一层允许创建 `ToolCallSpec` 的节点。它不执行工具，只把上游语义计划降级成可验证、可执行的工具计划。
+
+## 节点目标
+
+固定边界：
+
+```text
+planner = 生成 SemanticPlan / tool_hints
+plan_compiler = 生成 QueryPlan / ToolCallSpec
+plan_validator = 检查计划是否合法
+executor = 真正执行工具
+```
+
+`plan_compiler` 负责：
+
+- 把 template workflow 或 generic tool hints 编译成 `QueryPlan`。
+- 生成 `ToolCallSpec.name / arguments / depends_on / output_key`。
+- 绑定 `$ref`、候选人来源、候选人池、排序结果和证据检索输入。
+- 建立 `ArtifactBinding`，让 validator/executor 知道产物来源和消费者。
+- 记录 compiler meta/debug，方便排查工具选择和引用绑定。
+
+它不负责：
+
+- 不重新判断 intent/scenario。
+- 不生成自然语言答案。
+- 不调用 tools。
+- 不做 plan repair。
+- 不在 hard filter 失败后私自扩大召回。
+
+## 输入 / 输出
+
+输入：
+
+| 字段 | 来源 | 用途 |
+|---|---|---|
+| `question` | 用户问题 | 生成检索 query、TopK 限制、trace。 |
+| `RouterOutput` | condition_normalizer 后 | conditions、context、requires flags、scenario。 |
+| `SemanticPlan` | planner 或 template fallback | steps、tool_hints、semantic needs。 |
+| `ExecutionDecision` | execution_policy | compiler 路径、workflow_name、scenarios。 |
+| `session_context` | graph state | 绑定上一轮候选人、候选池、ranking top。 |
+| `config` | YAML 加载结果 | compiler mode、tool policy、workflow template。 |
+| tool registry | tools registry | 判断工具是否存在。 |
+
+输出：
+
+| 字段 | 说明 | 给谁用 |
+|---|---|---|
+| `QueryPlan.intent` | 可执行计划主 intent | validator/executor。 |
+| `QueryPlan.sub_tasks` | compound 子任务 | validator/executor。 |
+| `QueryPlan.tool_calls` | 单 intent 工具调用 | executor。 |
+| `ToolCallSpec` | 工具名、参数、依赖、输出 key | executor。 |
+| `ArtifactBinding` | 产物来源、类型、scope、消费者 | validator/debug。 |
+| compiler meta | strategy、workflow、compiled tools、debug | trace/observability。 |
+
+## 三条编译路径
+
+### workflow_template
+
+```text
+ExecutionDecision.compiler = workflow_template
+-> compile_with_workflow_templates
 -> QueryPlan
 ```
 
-## 失败 / Fallback
+稳定高频问题走这条路。它优先读取 `compiler_templates.yaml.workflows`，直接把 workflow 编译成工具调用。
 
-Compiler 不执行 repair。非法计划交给 `plan_validator` 分类。
+### generic_tool_binding
 
-| 场景 | 行为 | Trace 字段 |
-|---|---|---|
-| LLM hint 工具不存在 | reject hint | `compiler_decision.hint_tool_decisions` |
-| hard filter source 不满足 scope | reject hint | `reason=source_scope_conflict` |
-| compound source 不一致 | canonical source binding | `artifacts_summary`，完整 DTO 见 Debug `artifact_bindings` |
-| 缺上下文绑定 | 编译出 context ref，validator 拦截 | `plan_validation_errors` |
+```text
+ExecutionDecision.compiler = generic_tool_binding
+-> planner
+-> SemanticPlan.tool_hints
+-> compile_with_generic_tool_binding
+-> QueryPlan
+```
 
-## Trace 字段
+开放或未模板化问题走这条路。compiler 会对 tool hints 做 allowed/forbidden/registry/source contract 检查，通过后才生成 `ToolCallSpec`。
 
-- `strategy`
-- `workflow_name`
-- `compiled_tools`
-- `filters`
-- `ref_bindings`
-- `artifacts_summary`
-- Debug 深度模式：`debug.compiler_flags`、`debug.llm_tool_hint_scores`、`debug.artifact_bindings`、`debug.compiled_plan`
+### hybrid_template_binding
 
-## 边界：能做 / 不能做
+```text
+compiler mode = hybrid_template_binding
+-> 如果 execution_policy 命中 workflow_template，走 template
+-> 否则走 generic
+```
 
-能做：
+这是生产常用模式：稳定路径用模板，不稳定路径走通用工具绑定。
 
-- 生成 QueryPlan 和 ToolCallSpec。
-- 绑定 `$ref`、`candidate_ids`、scope。
-- 建立 artifact lineage。
-- 拒绝非法 tool hints。
+## 文档阅读顺序
 
-不能做：
+```text
+1. README.md
+2. PLAN_COMPILER_FLOW.md
+3. YAML_USAGE.md
+4. compiler.py
+5. templates.py
+6. trace.py
+7. binding.py
+8. artifacts.py
+9. ../../core/rules/plan_building/
+10. ../../core/inspection/plan_artifacts.py
+```
 
-- 不重新判断 intent。
-- 不调用工具。
-- 不判断答案事实。
-- 不在 hard filter 空结果后扩大召回。
+注意：`binding.py` 和 `artifacts.py` 是兼容 wrapper，真正业务逻辑分别在 `core.rules.plan_building` 和 `core.inspection.plan_artifacts`。
 
-## 扩展方式
-
-- 新 workflow：更新 `compiler_templates.yaml`，补 compiler benchmark。
-- 新工具：先注册 registry，再更新 `tool_policy.yaml`。
-- 新 artifact：补 `ArtifactBinding`、validator、debug 展示。
-
-## 验收 benchmark
+## 验收命令
 
 ```bash
-.venv/bin/python resume_query_ai_qa/benchmarks/run_plan_contract_benchmark.py
-.venv/bin/python resume_query_ai_qa/benchmarks/run_plan_contract_benchmark.py
-.venv/bin/python resume_query_ai_qa/benchmarks/run_plan_contract_benchmark.py
+./.venv/bin/python -m compileall -q resume_query_ai_qa/nodes/plan_compiler
+./.venv/bin/python resume_query_ai_qa/benchmarks/run_policy_contract_benchmark.py
+./.venv/bin/python resume_query_ai_qa/benchmarks/run_plan_contract_benchmark.py
 ```

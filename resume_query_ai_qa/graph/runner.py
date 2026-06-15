@@ -1,3 +1,15 @@
+"""Public runner for one Query-AI graph invocation.
+
+这个文件负责什么：
+  初始化 config/logging/graph/state，执行 LangGraph，并在结束后持久化 trace。
+
+应该从哪个函数读起：
+  run()。
+
+不会负责什么：
+  不直接调用业务 node API，不做 route 判断，不解释 YAML 业务字段。
+"""
+
 from __future__ import annotations
 
 import uuid
@@ -22,7 +34,10 @@ def run(
     debug_trace: bool = False,
     config: ResumeQAConfig | None = None,
 ) -> ResumeQAState:
-    """执行一次受约束的问答图运行，并持久化完整追踪日志。"""
+    """执行一次问答 graph，并返回最终 ResumeQAState。
+
+    retry 参数会进入 graph state，routes.py 用它们判断 repair/rewrite 是否还能继续。
+    """
     cfg = config or load_config()
     configure_query_ai_logging(cfg)
     graph = build_state_graph()

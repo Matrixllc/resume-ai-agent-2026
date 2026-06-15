@@ -1,4 +1,7 @@
-"""QA-owned LLM client public API."""
+"""QA-owned LLM client public API.
+
+client 子包负责 provider setup、structured invoke 和 payload cleanup，不承载业务规则。
+"""
 
 from .errors import ResumeQALLMError
 from .models import build_chat_model, is_llm_enabled, llm_identity

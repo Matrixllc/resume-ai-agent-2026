@@ -1,7 +1,8 @@
-"""Stable core contracts for resume QA.
+"""Stable core exports for resume QA.
 
-Nodes should import rule helpers from their concrete core modules instead of
-using this package as a broad compatibility barrel.
+这个包只导出最常用的 schema/config 合同，方便外部调用方稳定 import。
+规则、inspection、answer generation 等能力应从具体 core 子包导入，避免
+把根包变成隐藏业务逻辑的大 barrel。
 """
 
 from .config import ResumeQAConfig, load_config

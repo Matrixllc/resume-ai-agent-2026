@@ -125,6 +125,85 @@ workflows:
         produces: evidence_collection
         default_output_key: candidate_evidence
 
+  scoped_list_evidence:
+    priority: 90
+    match:
+      intent: compound
+      required_sub_intents:
+        - candidate_list
+        - evidence_question
+      requires_scope: true
+    artifact_type: evidence_collection
+    sub_tasks:
+      - intent: candidate_filter
+        tool_calls:
+          - tool: filter_candidates
+            arguments: {$binding: filter_args}
+            output_key: candidate_pool
+      - intent: candidate_list
+        tool_calls: []
+      - intent: evidence_question
+        requires_evidence: true
+        tool_calls:
+          - tool: search_candidate_evidence
+            arguments:
+              query: {$binding: retrieval_query}
+              candidate_ids: {$ref: candidate_pool, path: [resume_identity], map: true}
+            depends_on: [candidate_pool]
+            output_key: candidate_evidence
+    notes:
+      - compiled_with_scoped_list_evidence_workflow
+      - evidence_bound_to_filtered_candidate_pool
+    artifact_contracts:
+      - tool: search_candidate_evidence
+        argument: candidate_ids
+        expected_ref: canonical_candidate_collection
+
+  scoped_count_list_evidence:
+    priority: 95
+    match:
+      intent: compound
+      required_sub_intents:
+        - candidate_count
+        - candidate_list
+        - evidence_question
+      requires_scope: true
+    artifact_type: evidence_collection
+    sub_tasks:
+      - intent: candidate_filter
+        tool_calls:
+          - tool: filter_candidates
+            arguments: {$binding: filter_args}
+            output_key: candidate_pool
+      - intent: candidate_count
+        tool_calls:
+          - tool: count_candidates
+            arguments:
+              candidates: {$ref: candidate_pool, path: [resume_identity], map: true}
+            depends_on: [candidate_pool]
+            output_key: candidate_count
+      - intent: candidate_list
+        tool_calls: []
+      - intent: evidence_question
+        requires_evidence: true
+        tool_calls:
+          - tool: search_candidate_evidence
+            arguments:
+              query: {$binding: retrieval_query}
+              candidate_ids: {$ref: candidate_pool, path: [resume_identity], map: true}
+            depends_on: [candidate_pool]
+            output_key: candidate_evidence
+    notes:
+      - compiled_with_scoped_count_list_evidence_workflow
+      - count_list_and_evidence_bound_to_filtered_candidate_pool
+    artifact_contracts:
+      - tool: count_candidates
+        argument: candidates
+        expected_ref: canonical_candidate_collection
+      - tool: search_candidate_evidence
+        argument: candidate_ids
+        expected_ref: canonical_candidate_collection
+
   scoped_count_rank_evidence:
     priority: 100
     match:

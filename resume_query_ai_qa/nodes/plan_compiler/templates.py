@@ -1,14 +1,27 @@
-"""Workflow-template compilation."""
+"""Workflow-template compilation.
+
+这个文件负责什么：
+- 把 compiler_templates.yaml 中声明的 workflow 编译成 QueryPlan。
+- 处理声明式复合 workflow，例如 scoped_count_rank_evidence。
+- 解析 workflow YAML 里的 {$binding: ...}。
+
+应该从哪个函数读起：
+- compile_with_workflow_templates
+- declarative_workflow_plan
+- sub_task_from_workflow_template
+
+不会负责什么：
+- 不匹配 workflow，匹配由 execution_policy 完成。
+- 不执行工具。
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
 from resume_query_ai_qa.core.config import ResumeQAConfig
-from resume_query_ai_qa.core.schemas import QueryPlan, RouterOutput, SemanticPlan, SubTaskPlan, ToolCallSpec, ToolHint
-
-from .artifacts import with_artifact_bindings
-from .binding import (
+from resume_query_ai_qa.core.inspection.plan_artifacts import with_artifact_bindings
+from resume_query_ai_qa.core.rules.plan_building import (
     bind_compound_consumers_to_canonical_source,
     filter_args,
     generic_call_for_tool,
@@ -18,11 +31,11 @@ from .binding import (
     ranking_has_named_scope,
     reuse_candidate_source_for_count_list,
     scored_tool_hints,
-    structured_arg_ref,
     sub_task_for_intent,
     tool_query,
     with_structured_refs,
 )
+from resume_query_ai_qa.core.schemas import QueryPlan, RouterOutput, SemanticPlan, SubTaskPlan, ToolCallSpec
 
 
 def compile_with_workflow_templates(
@@ -34,8 +47,12 @@ def compile_with_workflow_templates(
     config: ResumeQAConfig,
     workflow_name: str = "",
 ) -> QueryPlan:
-    """将语义计划中的compilewith工作流templates编译为受配置约束的 QueryPlan 内容，不执行工具。"""
-    scoped = scoped_count_rank_evidence_plan(
+    """用 workflow template 编译 QueryPlan。
+
+    先尝试特殊复合 workflow；否则按 SemanticPlan steps 生成普通 template
+    子任务，并补 structured refs / artifact bindings。
+    """
+    scoped = declarative_workflow_plan(
         question,
         router_output,
         semantic_plan,
@@ -64,7 +81,7 @@ def compile_with_workflow_templates(
     return with_artifact_bindings(with_structured_refs(plan), router_output, config=config)
 
 
-def scoped_count_rank_evidence_plan(
+def declarative_workflow_plan(
     question: str,
     router_output: RouterOutput,
     semantic_plan: SemanticPlan,
@@ -73,17 +90,22 @@ def scoped_count_rank_evidence_plan(
     config: ResumeQAConfig,
     workflow_name: str = "",
 ) -> QueryPlan | None:
-    """构建限定范围的计数、排序和证据计划并返回。"""
-    if workflow_name and workflow_name != "scoped_count_rank_evidence":
+    """Build a declarative compound workflow QueryPlan.
+
+    Workflows with ``sub_tasks`` can be compiled directly from YAML. Bindings
+    inject current-turn filter args, retrieval query, and optional ranking tools.
+    """
+    if not workflow_name or workflow_name == "composed_sub_intent_workflows":
         return None
-    pattern = dict((config.compiler_templates.get("workflows", {}) or {}).get("scoped_count_rank_evidence", {}) or {})
-    if not pattern or not looks_like_scoped_count_rank_evidence(router_output, semantic_plan, pattern):
+    pattern = dict((config.compiler_templates.get("workflows", {}) or {}).get(workflow_name, {}) or {})
+    if not pattern or not pattern.get("sub_tasks") or not looks_like_declarative_workflow(router_output, semantic_plan, pattern):
         return None
+    evidence = dict(pattern.get("evidence", {}) or {})
     bindings: dict[str, Any] = {
         "filter_args": filter_args(question, router_output, session_context),
         "ranking_criteria_tool": ranking_criteria_tool(router_output, config),
-        "retrieval_query": tool_query(question, "candidate_ranking", router_output),
-        "workflow_evidence_max_candidates": int(dict(pattern.get("evidence", {}) or {}).get("max_candidates", 3) or 3),
+        "retrieval_query": tool_query(question, "evidence_question", router_output),
+        "workflow_evidence_max_candidates": int(evidence.get("max_candidates", 3) or 3),
     }
     tasks = [_sub_task_from_declarative_spec(raw, bindings) for raw in list(pattern.get("sub_tasks", []) or [])]
     if not tasks:
@@ -97,7 +119,7 @@ def scoped_count_rank_evidence_plan(
 
 
 def _with_ranking_output_limit(plan: QueryPlan, question: str) -> QueryPlan:
-    """Attach current-turn TopK display limits to plan constraints."""
+    """把当前问题里的 TopK 排序展示限制写入 QueryPlan constraints。"""
     limit = ranking_output_limit(question)
     if not limit:
         return plan
@@ -105,7 +127,7 @@ def _with_ranking_output_limit(plan: QueryPlan, question: str) -> QueryPlan:
 
 
 def _sub_task_from_declarative_spec(raw: Any, bindings: dict[str, Any]) -> SubTaskPlan:
-    """将语义计划中的subtaskfromdeclarativespec编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+    """把 workflow YAML 的 sub_task 声明转成 SubTaskPlan。"""
     spec = dict(raw or {})
     calls: list[ToolCallSpec] = []
     for raw_call in list(spec.get("tool_calls", []) or []):
@@ -127,7 +149,7 @@ def _sub_task_from_declarative_spec(raw: Any, bindings: dict[str, Any]) -> SubTa
 
 
 def _resolve_binding(value: Any, bindings: dict[str, Any]) -> Any:
-    """解析模板参数绑定并返回绑定值。"""
+    """递归解析 workflow YAML 里的 {$binding: name}。"""
     if isinstance(value, dict):
         if set(value) == {"$binding"}:
             return bindings.get(str(value["$binding"]))
@@ -137,14 +159,14 @@ def _resolve_binding(value: Any, bindings: dict[str, Any]) -> Any:
     return value
 
 
-def looks_like_scoped_count_rank_evidence(router_output: RouterOutput, semantic_plan: SemanticPlan, pattern: dict[str, Any]) -> bool:
-    """将语义计划中的lookslikescoped计数排序证据编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+def looks_like_declarative_workflow(router_output: RouterOutput, semantic_plan: SemanticPlan, pattern: dict[str, Any]) -> bool:
+    """Return true when the SemanticPlan satisfies a declarative workflow."""
     required = set(dict(pattern.get("match", {}) or {}).get("required_sub_intents", []) or [])
     return semantic_plan.intent == "compound" and required <= {step.intent for step in semantic_plan.steps}
 
 
 def template_tool_names(intent: str, config: ResumeQAConfig, scenario: str = "") -> list[str]:
-    """将语义计划中的模板工具姓名编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+    """读取某 intent/scenario 对应 workflow template 里的工具名。"""
     template = dict((config.compiler_templates.get("workflows", {}) or {}).get(intent, {}) or {})
     if scenario:
         scenarios = {str(item) for item in list(dict(template.get("match", {}) or {}).get("scenarios", []) or []) if str(item).strip()}
@@ -154,7 +176,7 @@ def template_tool_names(intent: str, config: ResumeQAConfig, scenario: str = "")
 
 
 def template_rejected_hints(semantic_plan: SemanticPlan, config: ResumeQAConfig) -> list[dict[str, Any]]:
-    """将语义计划中的模板rejectedhints编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+    """列出 template 路径会拒绝的非模板 tool hints，供 trace/debug 使用。"""
     rejected: list[dict[str, Any]] = []
     for step in semantic_plan.steps:
         allowed = set(template_tool_names(step.intent, config))
@@ -165,7 +187,7 @@ def template_rejected_hints(semantic_plan: SemanticPlan, config: ResumeQAConfig)
 
 
 def template_reject_reason(intent: str, tool_name: str) -> str:
-    """将语义计划中的模板reject原因编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+    """生成 template 路径拒绝某工具 hint 的统一 reason。"""
     return f"tool_not_in_workflow_template:{intent}"
 
 
@@ -177,7 +199,10 @@ def sub_task_from_workflow_template(
     session_context: dict | None,
     config: ResumeQAConfig,
 ) -> SubTaskPlan | None:
-    """将语义计划中的subtaskfrom工作流模板编译为受配置约束的 QueryPlan 内容，不执行工具。"""
+    """用普通 workflow template 生成单个 SubTaskPlan。
+
+    没有 template 时返回 None，调用方会回落到通用 sub_task_for_intent。
+    """
     if intent == "candidate_ranking" and ranking_has_named_scope(router_output):
         return None
     template = dict((config.compiler_templates.get("workflows", {}) or {}).get(intent, {}) or {})

@@ -1,4 +1,14 @@
-"""Human-readable Query-AI log browser."""
+"""Human-readable Query-AI log browser.
+
+这个文件负责什么：
+  读取 observability 写出的 qa_runs.jsonl 和 detail JSON，渲染成列表/详情视图。
+
+应该从哪个函数读起：
+  main() -> list_views()/find_detail() -> build_run_view() -> render_list()/render_show()。
+
+不会负责什么：
+  不修改日志，不重新判断业务对错，不修复 plan/result/answer。
+"""
 
 from __future__ import annotations
 
@@ -11,7 +21,7 @@ DEFAULT_LOGS_DIR = Path(__file__).resolve().parents[1] / "logs"
 
 
 def load_run_summaries(logs_dir: Path = DEFAULT_LOGS_DIR) -> list[dict[str, Any]]:
-    """加载运行摘要集合并返回。"""
+    """读取 qa_runs.jsonl，返回按文件顺序排列的 run summary。"""
     path = Path(logs_dir) / "qa_runs.jsonl"
     if not path.exists():
         return []
@@ -27,7 +37,7 @@ def load_run_summaries(logs_dir: Path = DEFAULT_LOGS_DIR) -> list[dict[str, Any]
 
 
 def find_detail(trace_id: str, logs_dir: Path = DEFAULT_LOGS_DIR) -> dict[str, Any]:
-    """查找详情并返回。"""
+    """按 trace_id 找到最新 detail JSON 并解析。"""
     matches = sorted(Path(logs_dir).glob(f"*_{trace_id}.json"))
     if not matches:
         return {}
@@ -36,7 +46,7 @@ def find_detail(trace_id: str, logs_dir: Path = DEFAULT_LOGS_DIR) -> dict[str, A
 
 
 def build_run_view(summary: dict[str, Any], detail: dict[str, Any] | None = None) -> dict[str, Any]:
-    """构建运行展示视图并返回。"""
+    """把 summary/detail 合并成 CLI 展示用的稳定 view。"""
     detail = detail or {}
     timeline = _timeline(detail)
     fallbacks = [
@@ -91,7 +101,7 @@ def list_views(
     logs_dir: Path = DEFAULT_LOGS_DIR,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """列出展示视图集合并返回。"""
+    """按模式列出最近运行、失败运行或 fallback/repair 运行。"""
     output: list[dict[str, Any]] = []
     for summary in reversed(load_run_summaries(logs_dir)):
         detail = find_detail(str(summary.get("trace_id") or ""), logs_dir)
@@ -107,7 +117,7 @@ def list_views(
 
 
 def render_list(views: Iterable[dict[str, Any]]) -> str:
-    """渲染列表并返回。"""
+    """把多个 run view 渲染成紧凑列表文本。"""
     rows = list(views)
     if not rows:
         return "没有匹配的 Query-AI 运行日志。"
@@ -122,7 +132,7 @@ def render_list(views: Iterable[dict[str, Any]]) -> str:
 
 
 def render_show(view: dict[str, Any]) -> str:
-    """渲染show并返回。"""
+    """把单个 run view 渲染成人类可读详情文本。"""
     if not view:
         return "未找到该 trace_id 对应的 Query-AI 日志。"
     lines = [
@@ -200,7 +210,7 @@ def _warnings(detail: dict[str, Any]) -> list[str]:
 
 
 def _timeline(detail: dict[str, Any]) -> list[dict[str, Any]]:
-    """获取时间线并返回。"""
+    """从 detail 中提取节点时间线，优先使用 decision_log。"""
     if detail.get("decision_log"):
         rows: list[dict[str, Any]] = []
         for item in detail.get("decision_log") or []:
@@ -227,7 +237,7 @@ def _duration_ms(timeline: list[dict[str, Any]]) -> float:
 
 
 def _what_happened(status: str, failed_node: str, fallbacks: list[dict[str, str]], repairs: list[dict[str, str]], warnings: list[str]) -> str:
-    """获取whathappened并返回。"""
+    """根据状态、fallback、repair 和 warning 生成一句运行概览。"""
     if status in {"failed", "needs_clarification"}:
         return f"查询未正常完成，停止在 {failed_node or '未知节点'}。"
     if fallbacks or repairs:
@@ -238,7 +248,7 @@ def _what_happened(status: str, failed_node: str, fallbacks: list[dict[str, str]
 
 
 def _system_handling(status: str, fallbacks: list[dict[str, str]], repairs: list[dict[str, str]]) -> str:
-    """获取系统处理方式并返回。"""
+    """描述系统如何处理失败、repair 或 fallback。"""
     if status in {"failed", "needs_clarification"}:
         return "系统保留错误和路由信息，没有静默生成未经校验的答案。"
     if repairs:
@@ -249,7 +259,7 @@ def _system_handling(status: str, fallbacks: list[dict[str, str]], repairs: list
 
 
 def _impact(status: str, fallbacks: list[dict[str, str]], repairs: list[dict[str, str]]) -> str:
-    """获取影响并返回。"""
+    """描述该运行状态对最终答案可信度的影响。"""
     if status in {"failed", "needs_clarification"}:
         return "本轮没有生成可作为最终结果使用的已校验答案。"
     if fallbacks or repairs:
@@ -263,7 +273,7 @@ def _suggested_check(
     repairs: list[dict[str, str]],
     validator_errors: dict[str, list[str]],
 ) -> str:
-    """获取建议检查项并返回。"""
+    """根据失败层和校验错误，给出优先排查方向。"""
     node = failed_node or (fallbacks[-1]["node"] if fallbacks else "") or (repairs[-1]["node"] if repairs else "")
     if "plan" in validator_errors or node in {"router", "condition_normalizer", "execution_policy", "planner", "plan_compiler", "plan_validator", "plan_repair"}:
         return "router/plan compiler/plan validator，以及 intents、router_rules、compiler_templates、tool_policy 配置。"
@@ -275,13 +285,13 @@ def _suggested_check(
 
 
 def _short_reason(value: Any, limit: int = 180) -> str:
-    """获取short原因并返回。"""
+    """压缩错误、warning 或 fallback reason，避免 CLI 输出过长。"""
     text = " ".join(str(value or "").split())
     return _preview(text, limit) or "未记录原因"
 
 
 def _fallback_category(value: Any) -> str:
-    """获取兜底分类并返回。"""
+    """根据 fallback reason 文本粗分兜底类别。"""
     text = str(value or "").lower()
     if "rule" in text or "deterministic" in text:
         return "规则回退"
@@ -293,7 +303,7 @@ def _fallback_category(value: Any) -> str:
 
 
 def _preview(value: str, limit: int) -> str:
-    """获取预览并返回。"""
+    """生成定长文本预览。"""
     return value if len(value) <= limit else value[:limit].rstrip() + "..."
 
 

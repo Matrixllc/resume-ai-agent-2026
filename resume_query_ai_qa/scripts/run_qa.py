@@ -1,3 +1,15 @@
+"""Run one Query-AI graph turn from the command line.
+
+这个文件负责什么：
+  解析 CLI 参数，调用 graph.run，并把 answer / trace / state 打印出来。
+
+应该从哪个函数读起：
+  main() -> _parse_session_context()。
+
+不会负责什么：
+  不解释 intent，不选择工具，不修改 graph 行为，不替代 benchmark。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -14,7 +26,7 @@ from resume_query_ai_qa.graph import run
 
 
 def main() -> None:
-    """解析命令行参数并执行主流程。"""
+    """解析命令行参数，运行 graph，并按输出模式打印结果。"""
     parser = argparse.ArgumentParser(description="Run the resume QA graph.")
     parser.add_argument("question", help="User question to send through the QA graph.")
     parser.add_argument(
@@ -58,7 +70,7 @@ def main() -> None:
 
 
 def _parse_session_context(raw: str) -> dict[str, Any]:
-    """解析会话上下文并返回。"""
+    """把 CLI 传入的 JSON 字符串解析为 session_context dict。"""
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as error:

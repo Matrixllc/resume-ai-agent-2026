@@ -1,4 +1,15 @@
-"""State-owned trace event helpers backed by Loguru observability."""
+"""State-owned trace event helpers backed by Loguru observability.
+
+这个文件负责什么：
+  统一修改 qa.trace，并通过 observability.emit_event 发出结构化运行事件。
+
+应该从哪个函数读起：
+  record_run_start() -> record_node_decision() -> record_route_decision()
+  -> finalize_run_trace()。
+
+不会负责什么：
+  不判断业务对错，不选择 graph route，不修复 plan/result/answer。
+"""
 
 from __future__ import annotations
 

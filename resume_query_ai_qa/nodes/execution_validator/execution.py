@@ -1,4 +1,14 @@
-"""Execution Validator entrypoint."""
+"""Execution validator entrypoint.
+
+这个文件负责什么：
+  汇总执行后检查，把 QueryPlan + ToolResult[] 收口为 ValidationResult。
+
+应该从哪个函数读起：
+  validate_execution()。
+
+不会负责什么：
+  不调用工具，不修复 plan，不生成答案；只报告 execution validation errors。
+"""
 
 from __future__ import annotations
 
@@ -22,7 +32,7 @@ def validate_execution(
     router_output: RouterOutput | None = None,
     session_context: dict | None = None,
 ) -> ValidationResult:
-    """校验计划执行结果并返回校验结果。"""
+    """按固定顺序检查工具失败、必需结果、证据覆盖、结果一致性和 lineage。"""
     cfg = config or load_config()
     errors: List[str] = []
     warnings: List[str] = []

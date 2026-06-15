@@ -1,4 +1,15 @@
-"""Answer layout contract checks."""
+"""Answer layout contract checks.
+
+这个文件负责什么：
+  根据 answer.warnings 中的 answer_layout:<layout>，读取 answer_layouts.yaml
+  并校验最终 answer 文本的标题和章节合同。
+
+应该从哪个函数读起：
+  validate_answer_layout()。
+
+不会负责什么：
+  不选择 layout，不生成答案结构，不判断事实是否充分。
+"""
 
 from __future__ import annotations
 
@@ -9,7 +20,7 @@ from .issues import issue
 
 
 def validate_answer_layout(answer: AggregatedAnswer, config: ResumeQAConfig) -> list[ValidationIssue]:
-    """校验答案布局合同并返回错误列表。"""
+    """从 answer.warnings 读取 layout 名，并按 YAML layout contract 校验文本。"""
     layout = ""
     for warning in answer.warnings or []:
         value = str(warning)

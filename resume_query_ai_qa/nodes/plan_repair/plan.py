@@ -1,4 +1,20 @@
-"""Plan repair classification and deterministic reconstruction."""
+"""Plan repair classification and deterministic reconstruction.
+
+这个文件负责什么：
+- 根据 plan_validator 错误决定 repair / clarify / fail。
+- 对可修复错误执行确定性 QueryPlan 重建。
+- 修复后刷新 structured refs 和 artifact bindings。
+
+应该从哪个函数读起：
+- repair_plan
+- classify_plan_repair_action
+- build_rule_plan
+
+不会负责什么：
+- 不调用工具。
+- 不直接进入 executor。
+- 不绕过 plan_validator。
+"""
 
 from __future__ import annotations
 
@@ -13,7 +29,11 @@ from .llm import repair_llm_plan
 
 
 def build_rule_plan(question: str, router_output: RouterOutput, session_context: dict | None = None, config: ResumeQAConfig | None = None) -> QueryPlan:
-    """按结构化校验问题重建规则计划并返回。"""
+    """基于 RouterOutput 重新构建确定性 QueryPlan。
+
+    这是默认 repair 路径。它不在坏 plan 上随意 patch，而是重新按 intent、
+    sub_intents、conditions 和 context 生成安全计划。
+    """
     cfg = config or load_config()
     intents = router_output.sub_intent_candidates if router_output.intent == "compound" else [router_output.intent]
     if router_output.intent == "compound":
@@ -29,7 +49,7 @@ def build_rule_plan(question: str, router_output: RouterOutput, session_context:
 
 
 def _with_ranking_output_limit(plan: QueryPlan, question: str) -> QueryPlan:
-    """Attach current-turn TopK display limits to plan constraints."""
+    """把当前问题里的 TopK 排序展示限制写入 QueryPlan constraints。"""
     limit = ranking_output_limit(question)
     if not limit:
         return plan
@@ -46,7 +66,7 @@ def refresh_artifact_bindings(
 
 
 def requires_deterministic_plan(router_output: RouterOutput) -> bool:
-    """根据结构化校验问题执行requiresdeterministic计划修复，并保持原有安全边界和产物依赖。"""
+    """判断当前 intent 是否必须使用确定性规则修复。"""
     return router_output.intent in {"out_of_scope", "candidate_count", "candidate_list", "candidate_profile_intro", "candidate_compare_pair"} or router_output.intent == "compound"
 
 
@@ -58,7 +78,7 @@ def classify_plan_repair_action(
     config: ResumeQAConfig | None = None,
     validation_issues: list[ValidationIssue] | None = None,
 ) -> dict[str, str]:
-    """根据结构化校验问题执行classify计划修复action修复，并保持原有安全边界和产物依赖。"""
+    """根据 ValidationIssue 和 validation.yaml 决定 repair / clarify / fail。"""
     cfg = config or load_config()
     decision = validation_action(cfg, validation_issues or build_validation_issues(errors, "plan"), "plan")
     if decision["action"] == "repair":
@@ -77,7 +97,11 @@ def repair_plan(
     use_llm: bool = True,
     validation_issues: list[ValidationIssue] | None = None,
 ) -> tuple[QueryPlan, dict[str, str], str, str]:
-    """根据结构化校验问题执行修复计划修复，并保持原有安全边界和产物依赖。"""
+    """修复非法 QueryPlan 并返回修复结果。
+
+    返回值依次是：repaired plan、decision、engine、fallback_reason。
+    修复后的 plan 必须回到 plan_validator 复检，不能直接执行。
+    """
     cfg = config or load_config()
     decision = classify_plan_repair_action(
         validation_errors,

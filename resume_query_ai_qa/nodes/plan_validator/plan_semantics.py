@@ -1,4 +1,12 @@
-"""Plan semantics checks against RouterOutput."""
+"""Plan semantics checks against RouterOutput.
+
+这个文件负责什么：
+- 检查 QueryPlan 是否满足 RouterOutput 的语义合同。
+- 确认 intent、normalized_conditions、context_policy、requires_evidence 都进入计划。
+
+应该从哪个函数读起：
+- validate_plan_semantics
+"""
 
 from __future__ import annotations
 
@@ -23,7 +31,7 @@ def validate_plan_semantics(
     session_context: dict | None = None,
     config: ResumeQAConfig | None = None,
 ) -> List[str]:
-    """校验计划是否满足路由语义并返回错误列表。"""
+    """校验 QueryPlan 是否满足 RouterOutput 的语义要求。"""
     cfg = config or load_config()
     errors: List[str] = []
     intent_calls = _intent_calls(plan)
@@ -52,7 +60,9 @@ def validate_plan_semantics(
     if router_output.intent == "candidate_filter":
         for call in all_calls:
             if call.name == "filter_candidates" and not call.arguments:
-                errors.append("semantic: candidate_filter cannot execute filter_candidates without filter conditions")
+                errors.append("semantic: filter_candidates arguments are empty; current intent/scenario is allowed, but preference_target was not compiled into filter args")
+            if call.name == "hybrid_search_candidates" and not str((call.arguments or {}).get("query") or "").strip():
+                errors.append("semantic: hybrid_search_candidates query is empty; current intent/scenario is allowed, but preference_target was not compiled into recall query")
 
     planned_intents = {intent for intent, _calls in intent_calls}
     hard_domain_source_required = requires_hard_domain_source(planned_intents, router_output, config)
@@ -100,7 +110,7 @@ def validate_plan_semantics(
 
 
 def plan_uses_term(calls: List[ToolCallSpec], term: str) -> bool:
-    """获取计划uses词项并返回。"""
+    """判断计划参数或 query 中是否使用了某个 normalized term。"""
     target = str(term or "").strip().lower()
     if not target:
         return True
@@ -117,7 +127,7 @@ def plan_uses_term(calls: List[ToolCallSpec], term: str) -> bool:
 
 
 def plan_uses_structured_filter(calls: List[ToolCallSpec], condition_type: str, value: str) -> bool:
-    """获取计划uses结构化筛选并返回。"""
+    """判断 hard 条件是否进入 filter_candidates 的结构化参数。"""
     target = str(value or "").strip().lower()
     if not target:
         return True
@@ -134,7 +144,7 @@ def plan_uses_structured_filter(calls: List[ToolCallSpec], condition_type: str, 
 
 
 def requires_hard_domain_source(planned_intents: set[str], router_output: RouterOutput, config: ResumeQAConfig | None = None) -> bool:
-    """获取requires严格领域来源并返回。"""
+    """判断当前计划是否必须使用结构化 domain 候选来源。"""
     if not planned_intents & {"candidate_count", "candidate_list", "candidate_filter", "candidate_ranking"}:
         return False
     if router_looks_like_open_recall(router_output, config):
@@ -143,13 +153,13 @@ def requires_hard_domain_source(planned_intents: set[str], router_output: Router
 
 
 def router_looks_like_open_recall(router_output: RouterOutput, config: ResumeQAConfig | None = None) -> bool:
-    """获取路由lookslike开放召回并返回。"""
+    """判断 RouterOutput 中是否存在 open_recall scenario。"""
     intents = router_output.sub_intent_candidates if router_output.intent == "compound" else [router_output.intent]
     return any(scenario_for_intent(router_output, str(intent)) == "open_recall" for intent in intents)
 
 
 def is_hard_domain_condition(condition) -> bool:
-    """判断严格领域条件是否成立并返回布尔值。"""
+    """判断某个 normalized condition 是否是真正的 domain 硬条件。"""
     if getattr(condition, "type", "") != "domain" or not str(getattr(condition, "normalized_value", "") or "").strip():
         return False
     entry_types = taxonomy_entry_types(str(getattr(condition, "normalized_value", "") or ""))
@@ -159,7 +169,7 @@ def is_hard_domain_condition(condition) -> bool:
 
 
 def plan_limits_candidate_ids(calls: List[ToolCallSpec]) -> bool:
-    """获取计划限制集合候选人标识集合并返回。"""
+    """判断计划是否把上下文候选人 ID 限制传入工具参数。"""
     for call in calls:
         if call.name not in {"filter_candidates", "hybrid_search_candidates", "search_candidate_evidence"}:
             continue
@@ -174,7 +184,7 @@ def plan_limits_candidate_ids(calls: List[ToolCallSpec]) -> bool:
 
 
 def _missing_required_context(router_output: RouterOutput, session_context: dict, config: ResumeQAConfig) -> bool:
-    """获取missing必需上下文并返回。"""
+    """判断当前 session_context 是否缺少 router 要求的上下文。"""
     ref_type = router_output.context_policy.context_ref_type
     if not has_required_context(ref_type, session_context, config.router_rules):
         return True

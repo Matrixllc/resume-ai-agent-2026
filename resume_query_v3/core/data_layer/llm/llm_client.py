@@ -5,9 +5,6 @@ import re
 import time
 from typing import Any, Dict, List
 
-from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
-
 
 def invoke_llm_text(config: Dict[str, Any], prompt: str) -> str:
     errors: List[str] = []
@@ -48,6 +45,10 @@ def extract_json_object(text: str) -> Dict[str, Any]:
 def _build_llm(config: Dict[str, Any]) -> Any:
     perf = config.get("performance", {})
     if config["model"].get("chat_provider") == "openai":
+        try:
+            from langchain_openai import ChatOpenAI
+        except ModuleNotFoundError as error:
+            raise RuntimeError("langchain_openai is required when RESUME_V3_CHAT_PROVIDER=openai") from error
         return ChatOpenAI(
             model=config["model"]["openai_model"],
             api_key=config["env"]["openai_api_key"],
@@ -55,6 +56,10 @@ def _build_llm(config: Dict[str, Any]) -> Any:
             temperature=float(perf.get("llm_temperature", 0.0)),
             timeout=float(config["env"].get("openai_timeout", 120.0)),
         )
+    try:
+        from langchain_ollama import ChatOllama
+    except ModuleNotFoundError as error:
+        raise RuntimeError("langchain_ollama is required when RESUME_V3_CHAT_PROVIDER=ollama") from error
     return ChatOllama(
         model=config["model"]["llm_model"],
         base_url=config["env"]["ollama_host"],

@@ -102,9 +102,6 @@ def _reject_compatibility_wrapper_dependencies(errors: list[str]) -> None:
     """禁止生产代码依赖兼容转发模块，确保真实实现只有一份。"""
     wrapper_modules = (
         "resume_query_ai_qa.nodes.aggregator",
-        "resume_query_ai_qa.nodes.plan_compiler.binding",
-        "resume_query_ai_qa.nodes.plan_compiler.artifacts",
-        "resume_query_ai_qa.nodes.planner.rules",
     )
     allowed_files = {
         "resume_query_ai_qa/nodes/aggregator/__init__.py",

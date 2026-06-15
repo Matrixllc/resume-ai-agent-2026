@@ -1,4 +1,14 @@
-"""Execution repair classification and fallback QueryPlan rewriting."""
+"""Execution repair classification and fallback QueryPlan rewriting.
+
+这个文件负责什么：
+  根据 execution_validator 的错误决定是否做 query_fallback，并局部改写 QueryPlan。
+
+应该从哪个函数读起：
+  classify_execution_repair_action() -> repair_execution_plan() -> _fallback_calls()。
+
+不会负责什么：
+  不调用工具，不直接回答，不绕过 plan_validator，不修 hard_filter / evidence 空结果。
+"""
 
 from __future__ import annotations
 
@@ -20,7 +30,7 @@ def classify_execution_repair_action(
     config: ResumeQAConfig | None = None,
     validation_issues: list[ValidationIssue] | None = None,
 ) -> dict[str, str]:
-    """根据结构化校验问题执行classify执行修复action修复，并保持原有安全边界和产物依赖。"""
+    """根据 execution ValidationIssue 决定 clarify / fail / query_fallback。"""
     cfg = config or load_config()
     issues = validation_issues or build_validation_issues(errors, "execution")
     shared = validation_action(cfg, issues, "execution")
@@ -50,7 +60,7 @@ def repair_execution_plan(
     config: ResumeQAConfig | None = None,
     validation_issues: list[ValidationIssue] | None = None,
 ) -> tuple[QueryPlan, dict[str, str]]:
-    """根据结构化校验问题执行修复执行计划修复，并保持原有安全边界和产物依赖。"""
+    """生成 repaired QueryPlan；修复后刷新 refs / artifact bindings，等待 plan_validator 复核。"""
     decision = classify_execution_repair_action(
         errors,
         tool_results,
@@ -69,13 +79,13 @@ def repair_execution_plan(
 
 
 def _allows_query_fallback(plan: QueryPlan, router_output: RouterOutput) -> bool:
-    """根据结构化校验问题执行allows查询兜底修复，并保持原有安全边界和产物依赖。"""
+    """只有当前 intent 的 scenario 是 open_recall 时才允许 query fallback。"""
     intents = [task.intent for task in plan.sub_tasks] if plan.intent == "compound" else [plan.intent]
     return any(scenario_for_intent(router_output, intent) == "open_recall" for intent in intents)
 
 
 def _fallback_recall_plan(question: str, plan: QueryPlan, router_output: RouterOutput, *, action: str, config: ResumeQAConfig) -> QueryPlan:
-    """根据结构化校验问题执行兜底召回计划修复，并保持原有安全边界和产物依赖。"""
+    """为普通或 compound plan 应用 fallback recall，并生成清洗后的召回 query。"""
     query = cleaned_retrieval_query(router_output.normalized_conditions, fallback=question) or question
     if plan.intent == "compound":
         return _fallback_compound_plan(plan, query, action=action, config=config)
@@ -87,7 +97,7 @@ def _fallback_recall_plan(question: str, plan: QueryPlan, router_output: RouterO
 
 
 def _fallback_compound_plan(plan: QueryPlan, query: str, *, action: str, config: ResumeQAConfig) -> QueryPlan:
-    """根据结构化校验问题执行兜底compound计划修复，并保持原有安全边界和产物依赖。"""
+    """对 compound plan 的每个 sub_task 分别尝试 fallback tool 替换。"""
     sub_tasks = []
     for sub_task in plan.sub_tasks:
         calls, _replaced = _fallback_calls(sub_task.tool_calls, query, action=action, config=config)
@@ -96,7 +106,7 @@ def _fallback_compound_plan(plan: QueryPlan, query: str, *, action: str, config:
 
 
 def _fallback_calls(calls: list[ToolCallSpec], query: str, *, action: str, config: ResumeQAConfig) -> tuple[list[ToolCallSpec], bool]:
-    """根据结构化校验问题执行兜底调用修复，并保持原有安全边界和产物依赖。"""
+    """把配置了 fallback_tool 的 ToolCallSpec 替换为 query fallback 工具调用。"""
     next_calls: list[ToolCallSpec] = []
     replaced = False
     for call in calls:
@@ -121,7 +131,7 @@ def _fallback_calls(calls: list[ToolCallSpec], query: str, *, action: str, confi
 
 
 def _default_fallback_tool(config: ResumeQAConfig) -> str:
-    """根据结构化校验问题执行default兜底工具修复，并保持原有安全边界和产物依赖。"""
+    """当原 plan 没有可替换 call 时，从 tool_policy 中找一个默认 fallback tool。"""
     for raw in dict(config.tool_policy.get("tools", {}) or {}).values():
         fallback = str(dict(raw or {}).get("fallback_tool") or "")
         if fallback:
@@ -130,12 +140,12 @@ def _default_fallback_tool(config: ResumeQAConfig) -> str:
 
 
 def _iter_plan_calls(plan: QueryPlan) -> list[ToolCallSpec]:
-    """根据结构化校验问题执行iter计划调用修复，并保持原有安全边界和产物依赖。"""
+    """展开普通或 compound QueryPlan 中的全部工具调用。"""
     if plan.intent == "compound":
         return [call for task in plan.sub_tasks for call in task.tool_calls]
     return list(plan.tool_calls)
 
 
 def _has_tool_call(plan: QueryPlan, tool_name: str) -> bool:
-    """判断计划是否包含指定工具调用并返回布尔值。"""
+    """判断当前 QueryPlan 是否包含指定工具调用。"""
     return any(call.name == tool_name for call in _iter_plan_calls(plan))

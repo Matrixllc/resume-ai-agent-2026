@@ -69,7 +69,7 @@ Debug 中继续提供 trace 定位。
 ## 扩展方式
 
 1. 新增 terminal metadata 时先确认前端是否需要展示。
-2. 所有新增失败原因必须同步 API README 和 `QUERY_AI_LOGS.md` 字段词典。
+2. 所有新增失败原因必须同步 API README、observability README 和 `scripts/query_logs.py` 展示逻辑。
 3. 保持 helper 只读、窄接口，不让终端节点反向依赖工具层。
 4. 不要在这里补业务 fallback；主链路 fallback 应留在对应 validator/repair 节点。
 

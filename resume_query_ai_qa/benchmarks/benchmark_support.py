@@ -19,8 +19,6 @@ from resume_query_ai_qa.nodes.router import route_question
 CASES_PATH = Path(__file__).with_name("benchmark_cases.yaml")
 HYBRID_ENV = {
     "RESUME_QA_WORKFLOW_TEMPLATE_COMPILER_ENABLED": "true",
-    "RESUME_QA_GENERIC_TOOL_COMPILER_ENABLED": "true",
-    "RESUME_QA_COMPILER_MODE": "hybrid_template_binding",
 }
 
 
@@ -92,6 +90,16 @@ def semantic_failures(case: dict[str, Any], router) -> list[str]:
             f"conditions expected=[] actual_raw={ [item.model_dump() for item in router.conditions] } "
             f"actual_normalized={ [item.model_dump() for item in router.normalized_conditions] }"
         )
+    forbidden_candidate_names = {str(item) for item in list(expected.get("forbidden_candidate_names", []) or [])}
+    if forbidden_candidate_names:
+        actual_names = {
+            str(getattr(item, "raw_value", "") or getattr(item, "normalized_value", "") or "")
+            for item in [*router.conditions, *router.normalized_conditions]
+            if getattr(item, "type", "") == "candidate_name"
+        }
+        overlap = sorted(forbidden_candidate_names & actual_names)
+        if overlap:
+            failures.append(f"candidate_name contains forbidden collection terms {overlap}")
     for intent, scenario in dict(expected.get("scenarios", {}) or {}).items():
         actual = scenario_for_intent(router, str(intent))
         if actual != scenario:

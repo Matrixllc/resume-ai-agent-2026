@@ -1,6 +1,6 @@
 version: "v1"
 total_score: 100
-default_jd_path: "JD.md"
+default_jd_path: "resume_query_ai_qa/scoring/JD.md"
 dimensions:
   project_jd_evidence:
     weight: 40

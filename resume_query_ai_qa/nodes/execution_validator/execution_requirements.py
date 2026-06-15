@@ -1,4 +1,14 @@
-"""Execution result requirement checks by intent."""
+"""Execution result requirement checks by intent.
+
+这个文件负责什么：
+  检查每个 intent 执行后是否拿到了 YAML 要求的工具结果。
+
+应该从哪个函数读起：
+  validate_required_tool_results()，再读 is_allowed_business_limit_result()。
+
+不会负责什么：
+  不检查 count 数值是否一致，不检查 evidence 覆盖，不检查 candidate lineage。
+"""
 
 from __future__ import annotations
 
@@ -10,7 +20,7 @@ from resume_query_ai_qa.core.schemas import QueryPlan, ToolResult
 
 
 def is_allowed_business_limit_result(result: ToolResult, config: ResumeQAConfig | None = None) -> bool:
-    """判断允许项业务限制结果是否成立并返回布尔值。"""
+    """判断 failed ToolResult 是否是 tool_policy.yaml 允许保留的业务限制。"""
     cfg = config or load_config()
     for raw in dict(cfg.tool_policy.get("business_limits", {}) or {}).values():
         rule = dict(raw or {})
@@ -27,7 +37,7 @@ def is_allowed_business_limit_result(result: ToolResult, config: ResumeQAConfig 
 
 
 def validate_required_tool_results(plan: QueryPlan, tool_results: List[ToolResult], config: ResumeQAConfig | None = None) -> List[str]:
-    """校验必需工具结果是否齐全并返回错误列表。"""
+    """根据 tool_policy.yaml.intent_result_requirements 校验必需工具结果。"""
     cfg = config or load_config()
     errors: List[str] = []
     tool_names = {item.tool_name for item in tool_results if item.ok or is_allowed_business_limit_result(item, cfg)}

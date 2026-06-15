@@ -1,4 +1,14 @@
-"""Build grounded answer context from ToolResult facts."""
+"""Build grounded answer context from ToolResult facts.
+
+这个文件负责什么：
+  只从 ToolResult[] 收集答案事实，形成 LLM 和规则 renderer 共用的 grounded_context。
+
+应该从哪个函数读起：
+  build_answer_context()，再按 count/candidate/profile/evidence/ranking/comparison collector 阅读。
+
+不会负责什么：
+  不调用工具，不补事实，不判断答案是否合格。
+"""
 
 from __future__ import annotations
 
@@ -8,7 +18,7 @@ from resume_query_ai_qa.core.schemas import QueryPlan, ToolResult
 
 
 def build_answer_context(query_frame: dict[str, Any], plan: QueryPlan, tool_results: list[ToolResult]) -> dict[str, Any]:
-    """构建答案上下文并返回。"""
+    """从 ToolResult[] 构建 grounded_context；这是答案事实和 LLM payload 的主要来源。"""
     task = {key: query_frame.get(key) for key in ["task_type", "freedom_level", "slots", "intents", "scenarios"]}
     slots = dict(task.get("slots") or {})
     if plan.constraints.ranking_output_limit:

@@ -12,14 +12,18 @@ import {
   ExternalLink,
   FileSearch,
   FileText,
+  KeyRound,
   Loader2,
+  LogOut,
   MessageSquareText,
   MonitorCheck,
   Route,
   Search,
   Send,
   Sparkles,
+  Upload,
   UserRound,
+  X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +44,9 @@ import {
   QAAskResponse,
   QAEvidenceRef,
   askResumeQa,
+  clearAccessToken,
   generateCandidateSummary,
+  getAccessToken,
   getCandidateDetail,
   getCandidateProjects,
   getCandidateResumeDocument,
@@ -49,9 +55,12 @@ import {
   getLlmStatus,
   ingestResumeFiles,
   IngestionResponse,
+  IngestionResult,
   IngestionStatus,
   LlmStatus,
+  setAccessToken,
   toApiUrl,
+  uploadResumeFile,
 } from "@/lib/api";
 
 type ActiveView = "candidates" | "qa";
@@ -78,6 +87,7 @@ export default function HomePage() {
   const [ingestMessage, setIngestMessage] = useState("");
   const [ingestDetails, setIngestDetails] = useState<string[]>([]);
   const [ingestStatus, setIngestStatus] = useState<IngestionStatus | null>(null);
+  const [refreshingCandidates, setRefreshingCandidates] = useState(false);
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [llmChecking, setLlmChecking] = useState(false);
   const [error, setError] = useState("");
@@ -88,11 +98,18 @@ export default function HomePage() {
   const [qaError, setQaError] = useState("");
   const [qaUseLlm, setQaUseLlm] = useState(true);
   const [qaDebug, setQaDebug] = useState(false);
+  const [qaAdvancedDebug, setQaAdvancedDebug] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [accessTokenPresent, setAccessTokenPresent] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [authChecking, setAuthChecking] = useState(false);
   const loadSeq = useRef(0);
   const ingestingRef = useRef(false);
   const ingestPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    setAccessTokenPresent(Boolean(getAccessToken()));
     void loadCandidates();
   }, []);
 
@@ -101,17 +118,25 @@ export default function HomePage() {
     void loadCandidate(selectedIdentity);
   }, [selectedIdentity]);
 
+  function reportError(err: unknown, setter: (value: string) => void = setError) {
+    const message = normalizeError(err);
+    if (isUnauthorizedError(err)) {
+      clearAccessToken();
+      setAuthRequired(true);
+      setter("请输入访问密码后继续。");
+      return;
+    }
+    setter(message);
+  }
+
   async function loadCandidates() {
     setLoading(true);
     setError("");
     try {
       const payload = await getCandidates();
       setCandidates(payload.candidates || []);
-      if (!selectedIdentity && payload.candidates?.[0]?.resume_identity) {
-        setSelectedIdentity(payload.candidates[0].resume_identity);
-      }
     } catch (err) {
-      setError(normalizeError(err));
+      reportError(err);
     } finally {
       setLoading(false);
     }
@@ -138,7 +163,7 @@ export default function HomePage() {
       setResumeDocument(documentPayload);
     } catch (err) {
       if (loadSeq.current !== seq) return;
-      setError(normalizeError(err));
+      reportError(err);
     } finally {
       if (loadSeq.current !== seq) return;
       setLoading(false);
@@ -152,7 +177,7 @@ export default function HomePage() {
     try {
       setSummary(await generateCandidateSummary(selectedIdentity));
     } catch (err) {
-      setError(normalizeError(err));
+      reportError(err);
     } finally {
       setSummaryLoading(false);
     }
@@ -164,7 +189,7 @@ export default function HomePage() {
     try {
       setLlmStatus(await getLlmStatus());
     } catch (err) {
-      setError(normalizeError(err));
+      reportError(err);
     } finally {
       setLlmChecking(false);
     }
@@ -183,49 +208,175 @@ export default function HomePage() {
     setIngestStatus({
       running: true,
       phase: "starting",
-      directory: "resume_query_v3/resume",
+      mode: "directory",
+      directory: "resume",
+      uploaded_file: "",
       total_files: 0,
       current_index: 0,
       current_file: "",
-      current_step: "正在提交导入任务",
+      current_step: "正在提交重建入库任务",
       success_count: 0,
       error_count: 0,
-      message: "正在提交导入任务...",
-      recent_messages: ["正在提交导入任务..."],
+      message: "正在提交任务：先清空旧数据库和向量库，再遍历 resume 批量入库...",
+      recent_messages: ["正在提交任务：先清空旧数据库和向量库，再遍历 resume 批量入库..."],
     });
     startIngestionPolling();
     try {
       const previousIdentity = selectedIdentity;
-      const result = await ingestResumeFiles("resume_query_v3/resume");
-      const okResults = result.results.filter((item) => item.status === "ok");
-      const okIdentities = okResults.map((item) => item.resume_identity || "").filter(Boolean);
-      const preferredIdentity = okIdentities.includes(previousIdentity) ? previousIdentity : okIdentities[0] || previousIdentity;
-      setIngestMessage(
-        [
-          result.message || `收集完成：${result.success_count}/${result.total_files} 成功，${result.error_count} 失败。`,
-          preferredIdentity && preferredIdentity !== previousIdentity ? "已自动切换到本次新写入的候选人。" : "",
-          preferredIdentity && preferredIdentity === previousIdentity ? "已重新刷新当前候选人详情。" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")
-      );
-      setIngestDetails(buildIngestDetails(result));
-      await loadCandidates();
-      if (preferredIdentity) {
-        if (preferredIdentity === previousIdentity) {
-          await loadCandidate(preferredIdentity);
-        } else {
-          setSelectedIdentity(preferredIdentity);
-        }
-      }
+      const result = await ingestResumeFiles("resume", true);
+      await completeIngestionResult(result, previousIdentity);
     } catch (err) {
-      setError(normalizeError(err));
+      reportError(err);
     } finally {
       await refreshIngestionStatus();
       stopIngestionPolling();
       ingestingRef.current = false;
       setIngesting(false);
     }
+  }
+
+  async function handleUploadResume(file: File) {
+    if (ingestingRef.current) {
+      setIngestMessage("已有导入任务正在运行，请等待当前任务完成。");
+      return;
+    }
+    ingestingRef.current = true;
+    setIngesting(true);
+    setError("");
+    setIngestMessage("");
+    setIngestDetails([]);
+    setIngestStatus({
+      running: true,
+      phase: "starting",
+      mode: "upload",
+      directory: "resume/uploads",
+      uploaded_file: file.name,
+      total_files: 1,
+      current_index: 0,
+      current_file: file.name,
+      current_step: "正在上传简历",
+      success_count: 0,
+      error_count: 0,
+      message: `正在上传：${file.name}`,
+      recent_messages: [`正在上传：${file.name}`],
+    });
+    startIngestionPolling();
+    try {
+      const previousIdentity = selectedIdentity;
+      const result = await uploadResumeFile(file);
+      applyIngestionResultMessage(result, previousIdentity);
+      finishUploadProgress(result);
+      stopIngestionPolling();
+      ingestingRef.current = false;
+      setIngesting(false);
+      if (hasIngestionSuccess(result)) {
+        void refreshCandidatesAfterIngestion(result, previousIdentity);
+      }
+    } catch (err) {
+      reportError(err);
+      finishUploadProgress(null);
+      stopIngestionPolling();
+      ingestingRef.current = false;
+      setIngesting(false);
+    } finally {
+      if (ingestingRef.current) {
+        await refreshIngestionStatus();
+        stopIngestionPolling();
+        ingestingRef.current = false;
+        setIngesting(false);
+      }
+    }
+  }
+
+  async function completeIngestionResult(result: IngestionResponse, previousIdentity: string) {
+    applyIngestionResultMessage(result, previousIdentity);
+    await refreshCandidatesAfterIngestion(result, previousIdentity);
+  }
+
+  function applyIngestionResultMessage(result: IngestionResponse, previousIdentity: string) {
+    const okResults = result.results.filter((item) => item.status === "ok");
+    const okIdentities = okResults.map((item) => item.resume_identity || "").filter(Boolean);
+    const hasSuccess = hasIngestionSuccess(result);
+    const hasFailure = hasIngestionFailure(result);
+    const firstError = result.results.find((item) => item.status === "error")?.error || "";
+    const resetWasApplied = Boolean(result.reset_summary?.enabled);
+    const preferredIdentity = okIdentities.includes(previousIdentity) ? previousIdentity : okIdentities[0] || (resetWasApplied ? "" : previousIdentity);
+    setIngestMessage(
+      [
+        result.message || `收集完成：${result.success_count}/${result.total_files} 成功，${result.error_count} 失败。`,
+        result.uploaded_file && hasFailure && !hasSuccess ? `上传文件已保存，但入库失败${firstError ? `：${firstError}` : "。"}` : "",
+        result.uploaded_file && hasSuccess ? "上传文件已持久保存，候选人源文件预览可继续使用。" : "",
+        result.uploaded_file && hasSuccess ? "可点击“刷新候选人”确认列表更新。" : "",
+        hasSuccess && preferredIdentity && preferredIdentity !== previousIdentity ? "已自动切换到本次新写入的候选人。" : "",
+        hasSuccess && preferredIdentity && preferredIdentity === previousIdentity ? "已重新刷新当前候选人详情。" : "",
+        hasSuccess && okIdentities.length ? "已入库，可在 AI 问答中使用。" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+    setIngestDetails(buildIngestDetails(result));
+  }
+
+  async function refreshCandidatesAfterIngestion(result: IngestionResponse, previousIdentity: string) {
+    const okResults = result.results.filter((item) => item.status === "ok");
+    const okIdentities = okResults.map((item) => item.resume_identity || "").filter(Boolean);
+    const resetWasApplied = Boolean(result.reset_summary?.enabled);
+    const preferredIdentity = okIdentities.includes(previousIdentity) ? previousIdentity : okIdentities[0] || (resetWasApplied ? "" : previousIdentity);
+    await loadCandidates();
+    if (preferredIdentity) {
+      if (preferredIdentity === previousIdentity) {
+        await loadCandidate(preferredIdentity);
+      } else {
+        setSelectedIdentity(preferredIdentity);
+      }
+    } else if (resetWasApplied) {
+      setSelectedIdentity("");
+      setCandidate(null);
+      setProjects(null);
+      setResumeDocument(null);
+      setSummary(null);
+    }
+  }
+
+  async function handleRefreshCandidates() {
+    setRefreshingCandidates(true);
+    setError("");
+    try {
+      await loadCandidates();
+      if (selectedIdentity) {
+        await loadCandidate(selectedIdentity);
+      }
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setRefreshingCandidates(false);
+    }
+  }
+
+  function finishUploadProgress(result: IngestionResponse | null) {
+    setIngestStatus((status) => ({
+      ...(status || {
+        running: false,
+        phase: "done",
+        mode: "upload",
+        directory: "resume/uploads",
+        uploaded_file: "",
+        total_files: 1,
+        current_index: 1,
+        current_file: "",
+        current_step: "",
+        success_count: 0,
+        error_count: 0,
+        message: "",
+        recent_messages: [],
+      }),
+      running: false,
+      phase: "done",
+      current_step: result?.error_count ? "上传入库失败" : "上传入库完成",
+      success_count: result?.success_count ?? status?.success_count ?? 0,
+      error_count: result?.error_count ?? status?.error_count ?? 0,
+      message: result?.message || status?.message || "",
+    }));
   }
 
   function startIngestionPolling() {
@@ -244,7 +395,18 @@ export default function HomePage() {
 
   async function refreshIngestionStatus() {
     try {
-      setIngestStatus(await getIngestionStatus());
+      const nextStatus = await getIngestionStatus();
+      setIngestStatus((currentStatus) => {
+        if (
+          ingestingRef.current &&
+          currentStatus?.mode === "upload" &&
+          currentStatus.phase !== "done" &&
+          (!nextStatus.running || nextStatus.mode !== "upload")
+        ) {
+          return currentStatus;
+        }
+        return nextStatus;
+      });
     } catch {
       // Progress is best-effort; the final POST result still reports success/failure.
     }
@@ -280,7 +442,7 @@ export default function HomePage() {
         },
       ]);
     } catch (err) {
-      setQaError(normalizeError(err));
+      reportError(err, setQaError);
     } finally {
       setQaLoading(false);
     }
@@ -305,6 +467,49 @@ export default function HomePage() {
     setQaMessages([]);
     setQaSessionContext({});
     setQaError("");
+  }
+
+  async function handleUnlock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const token = passwordInput.trim();
+    if (!token) {
+      setError("请输入访问密码。");
+      return;
+    }
+    setAuthChecking(true);
+    setError("");
+    setAccessToken(token);
+    try {
+      const payload = await getCandidates();
+      setCandidates(payload.candidates || []);
+      setAuthRequired(false);
+      setAccessTokenPresent(true);
+      setPasswordInput("");
+      void handleCheckLlm();
+    } catch (err) {
+      clearAccessToken();
+      setAccessTokenPresent(false);
+      setAuthRequired(true);
+      setError(normalizeError(err));
+    } finally {
+      setAuthChecking(false);
+    }
+  }
+
+  function handleLock() {
+    clearAccessToken();
+    setAccessTokenPresent(false);
+    setAuthRequired(true);
+    setPasswordInput("");
+    setCandidates([]);
+    setSelectedIdentity("");
+    setCandidate(null);
+    setProjects(null);
+    setResumeDocument(null);
+    setSummary(null);
+    setQaMessages([]);
+    setQaSessionContext({});
+    setError("");
   }
 
   return (
@@ -337,35 +542,54 @@ export default function HomePage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {accessTokenPresent ? (
+                <Button onClick={handleLock} variant="outline">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  锁定
+                </Button>
+              ) : null}
               <Button onClick={handleCheckLlm} disabled={llmChecking}>
                 {llmChecking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MonitorCheck className="mr-2 h-4 w-4" />}
                 检查总结服务
               </Button>
-              <Button onClick={handleIngestResumes} disabled={ingesting} aria-busy={ingesting}>
-                {ingesting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DatabaseZap className="mr-2 h-4 w-4" />}
-                {ingesting ? "正在导入，请等待" : "遍历 resume 文件并收集信息"}
-              </Button>
             </div>
           </header>
 
-          {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-          {llmStatus ? <LlmStatusPanel status={llmStatus} /> : null}
-          {ingestMessage ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              <div>{ingestMessage}</div>
-              {ingestDetails.length ? (
-                <div className="mt-2 space-y-1 text-xs leading-5 text-emerald-700">
-                  {ingestDetails.map((item) => (
-                    <div key={item}>{item}</div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+          {authRequired ? (
+            <AccessPasswordPanel
+              value={passwordInput}
+              checking={authChecking}
+              onChange={setPasswordInput}
+              onSubmit={handleUnlock}
+            />
           ) : null}
-          {ingesting || ingestStatus?.running ? <IngestionProgress status={ingestStatus} /> : null}
+          {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+          {llmStatus ? <LlmStatusPanel status={llmStatus} onClose={() => setLlmStatus(null)} /> : null}
           {activeView === "candidates" ? (
             <>
               {loading ? <LoadingRow text="正在读取候选人数据" /> : null}
+
+              <ResumeIngestionPanel
+                ingesting={ingesting}
+                refreshingCandidates={refreshingCandidates}
+                message={ingestMessage}
+                details={ingestDetails}
+                status={ingestStatus}
+                onUploadClick={() => uploadInputRef.current?.click()}
+                onScan={handleIngestResumes}
+                onRefreshCandidates={handleRefreshCandidates}
+              />
+              <input
+                ref={uploadInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  if (file) void handleUploadResume(file);
+                }}
+              />
 
               <CandidateBrowser
                 allCandidates={candidates}
@@ -375,19 +599,23 @@ export default function HomePage() {
                 onSelect={setSelectedIdentity}
               />
 
-              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px] 2xl:grid-cols-[minmax(0,1fr)_420px] xl:items-start">
-                <div className="min-w-0 space-y-5">
-                  <ProfileView candidate={candidate} />
-                  <ProjectsView projects={projects} />
-                  <SummaryView
-                    candidate={candidate}
-                    summary={summary}
-                    loading={summaryLoading}
-                    onGenerate={handleGenerateSummary}
-                  />
+              {selectedIdentity ? (
+                <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px] 2xl:grid-cols-[minmax(0,1fr)_420px] xl:items-start">
+                  <div className="min-w-0 space-y-5">
+                    <ProfileView candidate={candidate} />
+                    <ProjectsView projects={projects} />
+                    <SummaryView
+                      candidate={candidate}
+                      summary={summary}
+                      loading={summaryLoading}
+                      onGenerate={handleGenerateSummary}
+                    />
+                  </div>
+                  <OriginalResumePanel document={resumeDocument} loading={loading && Boolean(selectedIdentity)} />
                 </div>
-                <OriginalResumePanel document={resumeDocument} loading={loading && Boolean(selectedIdentity)} />
-              </div>
+              ) : (
+                <CandidateSelectionEmptyState hasCandidates={candidates.length > 0} />
+              )}
             </>
           ) : (
             <AIQAWorkspace
@@ -397,18 +625,92 @@ export default function HomePage() {
               error={qaError}
               useLlm={qaUseLlm}
               debug={qaDebug}
+              advancedDebug={qaAdvancedDebug}
               sessionContext={qaSessionContext}
               onQuestionChange={setQaQuestion}
               onSubmit={handleQaSubmit}
               onAskOption={handleQaOption}
               onUseLlmChange={setQaUseLlm}
               onDebugChange={setQaDebug}
+              onAdvancedDebugChange={setQaAdvancedDebug}
               onReset={handleResetQa}
             />
           )}
         </div>
       </main>
     </div>
+  );
+}
+
+function ResumeIngestionPanel({
+  ingesting,
+  refreshingCandidates,
+  message,
+  details,
+  status,
+  onUploadClick,
+  onScan,
+  onRefreshCandidates,
+}: {
+  ingesting: boolean;
+  refreshingCandidates: boolean;
+  message: string;
+  details: string[];
+  status: IngestionStatus | null;
+  onUploadClick: () => void;
+  onScan: () => void;
+  onRefreshCandidates: () => void;
+}) {
+  return (
+    <Card className="border-emerald-200">
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <DatabaseZap className="h-5 w-5 text-emerald-600" />
+              简历入库
+            </CardTitle>
+            <CardDescription className="mt-1">
+              上传一份简历或扫描根目录 resume，入库后会出现在候选人信息和 AI 问答中。
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onUploadClick} disabled={ingesting} aria-busy={ingesting}>
+              {ingesting && status?.mode === "upload" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              上传简历并入库
+            </Button>
+            <Button onClick={onScan} disabled={ingesting} aria-busy={ingesting} variant="outline">
+              {ingesting && status?.mode !== "upload" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DatabaseZap className="mr-2 h-4 w-4" />}
+              清空旧数据并遍历 resume
+            </Button>
+            <Button onClick={onRefreshCandidates} disabled={ingesting || refreshingCandidates} variant="outline">
+              {refreshingCandidates ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+              刷新候选人
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-3">
+          <InfoCell label="上传存储" value="resume/uploads" />
+          <InfoCell label="支持格式" value="PDF / DOC / DOCX" />
+          <InfoCell label="批量扫描" value="先清空 SQLite/Chroma，再重建入库" />
+        </div>
+        {message ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <div>{message}</div>
+            {details.length ? (
+              <div className="mt-2 space-y-1 text-xs leading-5 text-emerald-700">
+                {details.map((item) => (
+                  <div key={item}>{item}</div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {(status?.running || (ingesting && status?.mode === "upload" && status.phase !== "done")) ? <IngestionProgress status={status} /> : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -453,6 +755,7 @@ function CandidateBrowser({
               disabled={!optionCandidates.length}
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-400"
             >
+              <option value="">请选择候选人</option>
               {optionCandidates.map((item) => (
                 <option key={item.resume_identity} value={item.resume_identity}>
                   {item.name || "未命名候选人"}{item.job_intent ? ` - ${item.job_intent}` : ""}
@@ -462,6 +765,24 @@ function CandidateBrowser({
           </div>
         </div>
       </CardHeader>
+    </Card>
+  );
+}
+
+function CandidateSelectionEmptyState({ hasCandidates }: { hasCandidates: boolean }) {
+  return (
+    <Card className="border-dashed">
+      <CardHeader>
+        <CardTitle>请选择一个候选人查看详情</CardTitle>
+        <CardDescription>
+          {hasCandidates ? "从上方下拉框选择候选人后，会展示个人信息、项目经历、总结和原简历。" : "当前还没有候选人数据，也可以先在上方上传一份简历并入库。"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
+          也可以先在上方上传一份简历并入库，系统会自动切换到新写入的候选人。
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -710,12 +1031,14 @@ function AIQAWorkspace({
   error,
   useLlm,
   debug,
+  advancedDebug,
   sessionContext,
   onQuestionChange,
   onSubmit,
   onAskOption,
   onUseLlmChange,
   onDebugChange,
+  onAdvancedDebugChange,
   onReset,
 }: {
   question: string;
@@ -724,12 +1047,14 @@ function AIQAWorkspace({
   error: string;
   useLlm: boolean;
   debug: boolean;
+  advancedDebug: boolean;
   sessionContext: Record<string, unknown>;
   onQuestionChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onAskOption: (value: string) => void;
   onUseLlmChange: (value: boolean) => void;
   onDebugChange: (value: boolean) => void;
+  onAdvancedDebugChange: (value: boolean) => void;
   onReset: () => void;
 }) {
   const latestResponse = [...messages].reverse().find((item) => item.response)?.response;
@@ -753,6 +1078,12 @@ function AIQAWorkspace({
                   <input checked={debug} onChange={(event) => onDebugChange(event.target.checked)} type="checkbox" />
                   Debug
                 </label>
+                {debug ? (
+                  <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700">
+                    <input checked={advancedDebug} onChange={(event) => onAdvancedDebugChange(event.target.checked)} type="checkbox" />
+                    显示高级调试信息
+                  </label>
+                ) : null}
                 <Button onClick={onReset} variant="outline" disabled={loading && !messages.length}>
                   重置会话
                 </Button>
@@ -809,7 +1140,7 @@ function AIQAWorkspace({
 
         {debug ? (
           <div className="space-y-5">
-            <QATracePanel response={latestResponse} />
+            <QATracePanel response={latestResponse} advancedDebug={advancedDebug} />
           </div>
         ) : null}
       </div>
@@ -1003,7 +1334,7 @@ function QAEvidencePanel({ response }: { response?: QAAskResponse }) {
   );
 }
 
-function QATracePanel({ response }: { response?: QAAskResponse }) {
+function QATracePanel({ response, advancedDebug }: { response?: QAAskResponse; advancedDebug: boolean }) {
   const trace = response?.trace;
   const diagnosis = trace?.diagnosis;
   const errors = trace?.validation_errors
@@ -1026,15 +1357,17 @@ function QATracePanel({ response }: { response?: QAAskResponse }) {
 
             {diagnosis ? <QADiagnosisPanel diagnosis={diagnosis} /> : null}
 
-            <TraceFlowPanel response={response} />
+            <TraceFlowPanel response={response} advancedDebug={advancedDebug} />
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_440px]">
-              <TraceJsonPanel title="Semantic Plan" value={trace.semantic_plan} maxHeightClass="max-h-[760px]" />
-              <div className="space-y-4">
-                <CompilerDecisionPanel response={response} />
-                <TraceJsonPanel title="Compiled Plan" value={trace.compiled_plan} maxHeightClass="max-h-[420px]" />
-              </div>
-            </div>
+            {advancedDebug ? (
+              <details className="rounded-lg border border-slate-200 bg-white p-3">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">查看原始计划</summary>
+                <div className="mt-3 grid gap-4 xl:grid-cols-2">
+                  <TraceJsonPanel title="Semantic Plan" value={trace.semantic_plan} maxHeightClass="max-h-[520px]" />
+                  <TraceJsonPanel title="Compiled Plan" value={trace.compiled_plan} maxHeightClass="max-h-[520px]" />
+                </div>
+              </details>
+            ) : null}
 
             <div className="space-y-2">
               <div>
@@ -1131,7 +1464,7 @@ type TraceRouteEvent = NonNullable<NonNullable<QAAskResponse["trace"]>["route_ev
 type TraceNodeDetailData = NonNullable<NonNullable<QAAskResponse["trace"]>["node_details"]>[string];
 type TraceNodeStatus = "ok" | "repair" | "failed" | "clarification" | "final";
 
-function TraceFlowPanel({ response }: { response?: QAAskResponse }) {
+function TraceFlowPanel({ response, advancedDebug }: { response?: QAAskResponse; advancedDebug: boolean }) {
   const trace = response?.trace;
   const steps = trace?.decision_steps || [];
   const routeEvents = trace?.route_events || [];
@@ -1206,6 +1539,7 @@ function TraceFlowPanel({ response }: { response?: QAAskResponse }) {
           status={selected.status}
           routes={selected.routes}
           detail={selectedDetail}
+          advancedDebug={advancedDebug}
           collapsed={nodeDetailCollapsed}
           onCollapsedChange={setNodeDetailCollapsed}
         />
@@ -1219,6 +1553,7 @@ function TraceNodeDetail({
   status,
   routes,
   detail,
+  advancedDebug,
   collapsed,
   onCollapsedChange,
 }: {
@@ -1226,6 +1561,7 @@ function TraceNodeDetail({
   status: TraceNodeStatus;
   routes: TraceRouteEvent[];
   detail?: TraceNodeDetailData;
+  advancedDebug: boolean;
   collapsed: boolean;
   onCollapsedChange: (value: boolean) => void;
 }) {
@@ -1246,17 +1582,32 @@ function TraceNodeDetail({
           className="h-8 gap-1.5 rounded-md px-2.5 text-xs"
         >
           {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
-          {collapsed ? "展开信息" : "折叠信息"}
+          {collapsed ? "更多细节" : "隐藏细节"}
         </Button>
       </div>
-      {!collapsed && detail ? (
+      {detail?.summary ? <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-800">{detail.summary}</div> : null}
+      {detail?.checks?.length ? <TraceCheckList checks={detail.checks} /> : null}
+      {detail ? (
         <>
           <div className="mt-3 grid gap-3 lg:grid-cols-3">
             <TraceNodeDetailBlock title="输入" value={detail.input} />
             <TraceNodeDetailBlock title="决策" value={detail.decision} />
             <TraceNodeDetailBlock title="输出" value={detail.output} />
           </div>
-          {detail.raw && Object.keys(detail.raw).length ? (
+          {!collapsed && isRecord(detail.advanced?.router_audit) ? (
+            <div className="mt-3">
+              <TraceRouterRuleLayers value={detail.advanced.router_audit} />
+            </div>
+          ) : null}
+          {advancedDebug && !collapsed && detail.advanced && Object.keys(detail.advanced).length ? (
+            <details className="mt-3 rounded-md border border-slate-200 bg-white/80 px-3 py-2">
+              <summary className="cursor-pointer font-semibold text-slate-900">查看高级调试信息</summary>
+              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
+                {formatPrettyJson(detail.advanced)}
+              </pre>
+            </details>
+          ) : null}
+          {!collapsed && detail.raw && Object.keys(detail.raw).length ? (
             <details className="mt-3 rounded-md border border-slate-200 bg-white/80 px-3 py-2">
               <summary className="cursor-pointer font-semibold text-slate-900">查看原始节点片段</summary>
               <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
@@ -1265,7 +1616,7 @@ function TraceNodeDetail({
             </details>
           ) : null}
         </>
-      ) : !collapsed ? (
+      ) : (
         <>
           {step.summary ? <div className="mt-2">summary: {step.summary}</div> : null}
           {step.error_category ? <div className="mt-1 text-rose-700">category: {step.error_category}</div> : null}
@@ -1274,7 +1625,7 @@ function TraceNodeDetail({
           {step.errors?.length ? <div className="mt-1 text-rose-700">errors: {step.errors.join("；")}</div> : null}
           {step.warnings?.length ? <div className="mt-1 text-amber-700">warnings: {step.warnings.join("；")}</div> : null}
         </>
-      ) : null}
+      )}
       {!collapsed && routes.length ? (
         <div className="mt-3 space-y-2">
           <div className="font-semibold text-slate-900">相关路由</div>
@@ -1303,8 +1654,8 @@ function TraceNodeDetailBlock({ title, value }: { title: string; value?: Record<
         <div className="space-y-2">
           {entries.map(([key, item]) => (
             <div key={key} className="min-w-0">
-              <div className="font-medium text-slate-500">{key}</div>
-              <div className="mt-0.5 min-w-0 text-slate-800">{formatTraceNodeValue(item)}</div>
+              <div className="font-medium text-slate-500">{traceFieldLabel(key)}</div>
+              <div className="mt-0.5 min-w-0 text-slate-800">{formatTraceField(key, item)}</div>
             </div>
           ))}
         </div>
@@ -1313,6 +1664,297 @@ function TraceNodeDetailBlock({ title, value }: { title: string; value?: Record<
       )}
     </div>
   );
+}
+
+function TraceCheckList({ checks }: { checks: NonNullable<TraceNodeDetailData["checks"]> }) {
+  return (
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {checks.map((check) => (
+        <div key={`${check.label}-${check.status}`} className={`rounded-md border px-3 py-2 ${check.status === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold">{check.label}</span>
+            <Badge className={check.status === "ok" ? "border-emerald-200 bg-white text-emerald-700" : "border-rose-200 bg-white text-rose-700"}>{check.status}</Badge>
+          </div>
+          {check.detail ? <div className="mt-1 text-[11px] leading-5 opacity-85">{check.detail}</div> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatTraceField(key: string, value: unknown): ReactNode {
+  if (key === "tool_calls" && Array.isArray(value)) return <TraceToolCallCards calls={value} />;
+  if (key === "compiled_tool_calls" && Array.isArray(value)) return <TraceToolCallCards calls={value} />;
+  if (key === "tool_results" && Array.isArray(value)) return <TraceToolResultCards results={value} />;
+  if (key === "claims" && Array.isArray(value)) return <TraceClaimCards claims={value} />;
+  if (key === "rule_layers" && isRecord(value)) return <TraceRouterRuleLayers value={value} />;
+  if (key === "router_audit" && isRecord(value)) return <TraceRouterRuleLayers value={value} />;
+  return formatTraceNodeValue(value);
+}
+
+function traceFieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    answer_preview: "答案预览",
+    claim_count: "结构化事实总数",
+    claims: "结构化事实",
+    used_evidence_count: "使用证据数",
+    tool_calls: "工具调用",
+    compiled_tool_calls: "最终工具调用",
+    tool_results: "工具结果",
+    warnings: "警告",
+    errors: "错误",
+    rule_layers: "路由规则分层",
+    router_audit: "Router 决策审计",
+  };
+  return labels[key] || key;
+}
+
+function TraceRouterRuleLayers({ value }: { value: Record<string, unknown> }) {
+  const hardRules = Array.isArray(value.hard_rules_applied) ? value.hard_rules_applied : [];
+  const softHints = Array.isArray(value.soft_hints) ? value.soft_hints : [];
+  const diagnostics = Array.isArray(value.diagnostics) ? value.diagnostics : [];
+  const fieldChanges = Array.isArray(value.field_changes) ? value.field_changes : [];
+  return (
+    <div className="space-y-2 rounded-md border border-slate-200 bg-white/80 p-3">
+      <div>
+        <div className="font-semibold text-slate-900">Router 决策审计</div>
+        <div className="mt-1 text-[11px] leading-5 text-slate-500">
+          硬覆盖 = 系统必须修正；软提示 = 只提示，不改 LLM 判断；诊断 = 提醒后续 compiler/validator 注意。
+        </div>
+      </div>
+      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="grid gap-2 text-xs sm:grid-cols-2">
+          <div><span className="font-semibold text-slate-700">草稿来源：</span>{formatInlineTraceValue(value.draft_source)}</div>
+          <div><span className="font-semibold text-slate-700">LLM/规则草稿：</span>{formatInlineTraceValue(value.draft_intent)} / {formatInlineTraceValue(value.draft_scenario)}</div>
+          <div><span className="font-semibold text-slate-700">最终结果：</span>{formatInlineTraceValue(value.final_intent)} / {formatInlineTraceValue(value.final_scenario)}</div>
+          <div><span className="font-semibold text-slate-700">硬覆盖：</span>{value.hard_override_applied ? "是" : "否"}</div>
+          <div><span className="font-semibold text-slate-700">保留 LLM/草稿判断：</span>{value.llm_decision_kept === false ? "否" : "是"}</div>
+        </div>
+        {isRecord(value.final_scenarios) && Object.keys(value.final_scenarios).length ? (
+          <div className="mt-2 text-xs text-slate-600">scenario：{Object.entries(value.final_scenarios).map(([key, item]) => `${key}=${formatInlineTraceValue(item)}`).join("；")}</div>
+        ) : null}
+      </div>
+      <TraceRuleList title="硬覆盖" items={hardRules.length ? hardRules : fieldChanges.filter((item) => isRecord(item) && item.source === "hard_rule")} empty="无硬覆盖。" />
+      <TraceRuleList title="字段变化" items={fieldChanges} empty="无字段变化。" />
+      <TraceRuleList title="未覆盖提示" items={softHints} empty="无软提示。" />
+      <TraceRuleList title="诊断" items={diagnostics} empty="无诊断风险。" />
+    </div>
+  );
+}
+
+function TraceRuleList({ title, items, empty }: { title: string; items: unknown[]; empty: string }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white/80 px-3 py-2">
+      <div className="mb-1 font-semibold text-slate-900">{title}</div>
+      {items.length ? (
+        <div className="space-y-1">
+          {items.map((item, index) => (
+            <div key={index} className="rounded bg-slate-50 px-2 py-1 text-xs leading-5 text-slate-700">{formatTraceNodeValue(item)}</div>
+          ))}
+        </div>
+      ) : (
+        <MutedText text={empty} />
+      )}
+    </div>
+  );
+}
+
+function TraceToolCallCards({ calls }: { calls: unknown[] }) {
+  return (
+    <div className="space-y-2">
+      {calls.slice(0, 8).map((raw, index) => {
+        const call = isRecord(raw) ? raw : {};
+        return (
+          <div key={`${String(call.name || "tool")}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-slate-900">{String(call.name || "tool")}</span>
+              {call.output_key ? <Badge>{String(call.output_key)}</Badge> : null}
+            </div>
+            {call.purpose ? <div className="mt-1 text-slate-600">{String(call.purpose)}</div> : null}
+            {Array.isArray(call.depends_on) && call.depends_on.length ? <div className="mt-1 text-slate-500">依赖：{call.depends_on.map(String).join("、")}</div> : null}
+            {isRecord(call.arguments) && Object.keys(call.arguments).length ? (
+              <div className="mt-2 space-y-1">
+                {Object.entries(call.arguments).slice(0, 6).map(([argKey, argValue]) => (
+                  <div key={argKey} className="grid grid-cols-[112px_minmax(0,1fr)] gap-2 rounded bg-white px-2 py-1">
+                    <span className="truncate text-slate-500">{argKey}</span>
+                    <span className="break-words text-slate-800">{formatInlineTraceValue(argValue)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+      {calls.length > 8 ? <div className="text-slate-400">+{calls.length - 8}</div> : null}
+    </div>
+  );
+}
+
+function TraceToolResultCards({ results }: { results: unknown[] }) {
+  return (
+    <div className="space-y-2">
+      {results.slice(0, 8).map((raw, index) => {
+        const result = isRecord(raw) ? raw : {};
+        const ok = Boolean(result.ok);
+        return (
+          <div key={`${String(result.name || "result")}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-slate-900">{String(result.name || "tool")}</span>
+              <Badge className={ok ? "border-emerald-200 bg-white text-emerald-700" : "border-rose-200 bg-white text-rose-700"}>{ok ? "ok" : "failed"}</Badge>
+              {result.result_shape ? <span className="text-slate-500">{String(result.result_shape)}</span> : null}
+              {result.result_count !== undefined ? <span className="text-slate-500">count={String(result.result_count)}</span> : null}
+            </div>
+            {result.error ? <div className="mt-1 text-rose-700">{String(result.error)}</div> : null}
+            {Array.isArray(result.warnings) && result.warnings.length ? <div className="mt-1 text-amber-700">{result.warnings.map(String).join("；")}</div> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TraceClaimCards({ claims }: { claims: unknown[] }) {
+  if (!claims.length) return <MutedText text="暂无结构化事实。" />;
+  const summary = summarizeClaims(claims);
+  return (
+    <div className="space-y-3">
+      <div className="text-[11px] leading-5 text-slate-500">结构化事实是系统从答案中保留的可校验信息，用来确认数量、姓名、排序和证据是否来自工具结果。</div>
+      <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge className="border-slate-200 bg-white text-slate-700">结构化事实总数：{claims.length}</Badge>
+          {summary.counts.map((item) => (
+            <Badge key={item.label} className="border-slate-200 bg-white text-slate-700">{item.label}：{item.count}</Badge>
+          ))}
+        </div>
+        <div className="mt-3 space-y-2 text-sm">
+          {summary.countValues.length ? <TraceClaimSummaryRow label="数量" value={summary.countValues.join("、")} /> : null}
+          {summary.names.length ? <TraceClaimSummaryRow label="候选人" value={summary.names.join("、")} /> : null}
+          {summary.rankings.length ? <TraceClaimSummaryRow label="排序" value={summary.rankings.join("；")} /> : null}
+          {summary.evidence.length ? <TraceClaimSummaryRow label="证据" value={summary.evidence.join("；")} /> : null}
+          {summary.profiles.length ? <TraceClaimSummaryRow label="档案" value={summary.profiles.join("、")} /> : null}
+          {summary.comparisons.length ? <TraceClaimSummaryRow label="对比" value={summary.comparisons.join("、")} /> : null}
+          {summary.others.length ? <TraceClaimSummaryRow label="其他" value={summary.others.join("；")} /> : null}
+        </div>
+      </div>
+      <details className="rounded-md border border-slate-200 bg-white/80 px-3 py-2">
+        <summary className="cursor-pointer font-semibold text-slate-900">查看完整结构化事实</summary>
+        <div className="mt-2 space-y-2">
+          {summary.records.map((claim, index) => (
+            <div key={`${claim.type}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge>{claimTypeLabel(claim.type)}</Badge>
+                <span className="font-semibold text-slate-900">{claim.subject || claim.text || "-"}</span>
+              </div>
+              {claim.value !== undefined ? <div className="mt-1 text-slate-600">值：{formatInlineTraceValue(claim.value)}</div> : null}
+              {claim.supportedBy.length ? <div className="mt-1 text-slate-500">支持工具：{claim.supportedBy.join("、")}</div> : null}
+              {claim.evidenceIds.length ? <div className="mt-1 break-all text-slate-500">证据：{claim.evidenceIds.join("、")}</div> : null}
+            </div>
+          ))}
+        </div>
+        <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
+          {formatPrettyJson(claims)}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
+function TraceClaimSummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 sm:grid-cols-[88px_minmax(0,1fr)]">
+      <div className="font-semibold text-slate-700">{label}</div>
+      <div className="break-words text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+type TraceClaimRecord = {
+  type: string;
+  subject: string;
+  text: string;
+  value?: unknown;
+  supportedBy: string[];
+  evidenceIds: string[];
+};
+
+function summarizeClaims(claims: unknown[]) {
+  const records: TraceClaimRecord[] = claims.map((raw) => {
+    const claim = isRecord(raw) ? raw : {};
+    return {
+      type: String(claim.type || "other"),
+      subject: String(claim.subject || ""),
+      text: String(claim.text || ""),
+      value: claim.value,
+      supportedBy: Array.isArray(claim.supported_by) ? claim.supported_by.map(String) : [],
+      evidenceIds: Array.isArray(claim.evidence_ids) ? claim.evidence_ids.map(String) : [],
+    };
+  });
+  const byType = (type: string) => records.filter((claim) => claim.type === type);
+  const countClaims = byType("count");
+  const nameClaims = byType("name");
+  const rankingClaims = byType("ranking");
+  const evidenceClaims = byType("evidence");
+  const profileClaims = byType("profile");
+  const comparisonClaims = byType("comparison");
+  const knownTypes = new Set(["count", "name", "ranking", "evidence", "profile", "comparison"]);
+  const otherClaims = records.filter((claim) => !knownTypes.has(claim.type));
+  return {
+    records,
+    counts: [
+      { label: "数量事实", count: countClaims.length },
+      { label: "候选人姓名事实", count: nameClaims.length },
+      { label: "证据事实", count: evidenceClaims.length },
+      { label: "排序事实", count: rankingClaims.length },
+      { label: "其他事实", count: profileClaims.length + comparisonClaims.length + otherClaims.length },
+    ],
+    countValues: countClaims.map((claim) => formatInlineTraceValue(claim.value ?? claim.text)).filter(Boolean),
+    names: nameClaims.map(claimDisplayName).filter(Boolean),
+    rankings: rankingClaims.map((claim) => {
+      const value = isRecord(claim.value) ? claim.value : {};
+      const rank = value.rank !== undefined ? `第${String(value.rank)}名` : "排序";
+      const score = value.score !== undefined ? `，分数 ${String(value.score)}` : "";
+      return `${rank}：${claimDisplayName(claim)}${score}`;
+    }).filter(Boolean),
+    evidence: evidenceClaims.map((claim) => {
+      const subject = claimDisplayName(claim);
+      return subject ? `${subject}：${claim.text || "证据"}` : claim.text || "证据";
+    }).filter(Boolean),
+    profiles: profileClaims.map(claimDisplayName).filter(Boolean),
+    comparisons: comparisonClaims.map(claimDisplayName).filter(Boolean),
+    others: otherClaims.map((claim) => claimDisplayName(claim) || claim.text || claim.type).filter(Boolean),
+  };
+}
+
+function claimDisplayName(claim: TraceClaimRecord): string {
+  return claim.subject || claim.text || formatInlineTraceValue(claim.value);
+}
+
+function claimTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    count: "数量事实",
+    name: "候选人姓名事实",
+    ranking: "排序事实",
+    evidence: "证据事实",
+    profile: "档案事实",
+    comparison: "对比事实",
+    other: "其他事实",
+  };
+  return labels[type] || type;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function formatInlineTraceValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(formatInlineTraceValue).join("、");
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function formatTraceNodeValue(value: unknown): ReactNode {
@@ -1635,18 +2277,62 @@ function LoadingRow({ text }: { text: string }) {
   );
 }
 
+function AccessPasswordPanel({
+  value,
+  checking,
+  onChange,
+  onSubmit,
+}: {
+  value: string;
+  checking: boolean;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <Card className="border-amber-200 bg-amber-50">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <KeyRound className="h-4 w-4 text-amber-700" />
+          访问密码
+        </CardTitle>
+        <CardDescription className="text-amber-800">
+          当前部署已启用简单访问保护，输入密码后才能查看候选人、上传简历和使用 AI 问答。
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="flex flex-col gap-3 sm:flex-row" onSubmit={onSubmit}>
+          <Input
+            type="password"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder="输入访问密码"
+            autoComplete="current-password"
+            className="bg-white"
+          />
+          <Button type="submit" disabled={checking} className="shrink-0">
+            {checking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+            解锁
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 function IngestionProgress({ status }: { status: IngestionStatus | null }) {
   const total = status?.total_files || 0;
   const current = status?.current_index || 0;
   const percent = total ? Math.min(100, Math.round((current / total) * 100)) : 12;
-  const messages = status?.recent_messages?.slice(-4).reverse() || [];
+  const messages = status?.recent_messages?.slice(-4) || [];
+  const modeLabel = status?.mode === "upload" ? "上传入库进度" : "导入进度";
+  const uploadSteps = buildUploadProgressSteps(status);
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-600" />
           <span className="font-medium text-slate-900">
-            {total ? `导入进度 ${current}/${total}` : "正在准备导入"}
+            {total ? `${modeLabel} ${current}/${total}` : "正在准备导入"}
           </span>
           {status?.current_file ? <span className="truncate text-slate-500">{status.current_file}</span> : null}
         </div>
@@ -1655,7 +2341,33 @@ function IngestionProgress({ status }: { status: IngestionStatus | null }) {
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
         <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${percent}%` }} />
       </div>
+      {status?.mode === "upload" ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+          {uploadSteps.map((step) => (
+            <div
+              key={step.label}
+              className={`rounded-md border px-2 py-2 text-xs ${
+                step.state === "done"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : step.state === "active"
+                    ? "border-sky-200 bg-sky-50 text-sky-800"
+                    : step.state === "failed"
+                      ? "border-red-200 bg-red-50 text-red-800"
+                      : "border-slate-200 bg-slate-50 text-slate-500"
+              }`}
+            >
+              <div className="font-semibold">{step.label}</div>
+              <div className="mt-1 leading-4">{step.text}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="mt-2 text-sm text-slate-600">{status?.current_step || status?.message || "正在处理简历文件"}</div>
+      {status?.error_hint ? (
+        <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-700">
+          {status.error_hint}
+        </div>
+      ) : null}
       {messages.length ? (
         <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
           {messages.map((message, index) => (
@@ -1667,15 +2379,54 @@ function IngestionProgress({ status }: { status: IngestionStatus | null }) {
   );
 }
 
-function LlmStatusPanel({ status }: { status: LlmStatus }) {
+function buildUploadProgressSteps(status: IngestionStatus | null) {
+  const currentStep = `${status?.current_step || ""} ${status?.message || ""}`;
+  const failed = Boolean(status?.error_count);
+  const done = status?.phase === "done" && !failed;
+  const activeIndex = done ? 5 : failed ? 4 : uploadProgressIndex(currentStep);
+  const labels = [
+    ["上传文件", "浏览器提交文件"],
+    ["保存文件", "写入 resume/uploads"],
+    ["解析文本", "读取简历内容"],
+    ["抽取字段", "识别候选人和项目"],
+    ["校验写库", "写入 SQLite/Chroma"],
+    ["AI 可查询", "刷新候选人和证据"],
+  ];
+  return labels.map(([label, text], index) => ({
+    label,
+    text,
+    state: failed && index === activeIndex ? "failed" : index < activeIndex || done ? "done" : index === activeIndex ? "active" : "pending",
+  }));
+}
+
+function uploadProgressIndex(text: string) {
+  if (/保存上传文件|已保存上传文件/.test(text)) return 1;
+  if (/解析简历文本|解析完成|开始解析上传简历/.test(text)) return 2;
+  if (/抽取候选字段|规则抽取完成|LLM\/规则复核/.test(text)) return 3;
+  if (/校验结构化结果|写入 SQLite|写库完成|写入审计日志/.test(text)) return 4;
+  if (/上传入库完成|可在 AI/.test(text)) return 5;
+  return 0;
+}
+
+function LlmStatusPanel({ status, onClose }: { status: LlmStatus; onClose: () => void }) {
   const localActive = status.chat_provider === "ollama";
   return (
     <div className={`rounded-lg border px-4 py-3 text-sm ${localActive ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="font-medium">当前总结模型：{status.display_name}</div>
-        <Badge className={status.available ? "border-emerald-200 bg-white text-emerald-700" : "border-amber-200 bg-white text-amber-700"}>
-          {status.available ? "可用" : "不可用"}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge className={status.available ? "border-emerald-200 bg-white text-emerald-700" : "border-amber-200 bg-white text-amber-700"}>
+            {status.available ? "可用" : "不可用"}
+          </Badge>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭总结服务状态"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-current/20 bg-white/70 transition hover:bg-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
       <div className="mt-2 leading-6">{status.message}</div>
     </div>
@@ -1989,23 +2740,47 @@ function normalizeTagValue(value: string) {
 
 
 function buildIngestDetails(result: IngestionResponse) {
+  const resetItems = result.reset_summary?.enabled
+    ? [`已清空旧入库数据：删除 ${result.reset_summary.removed?.length || 0} 项 SQLite/Chroma 存储。`]
+    : [];
   if (!result.results.length) {
-    return [`扫描目录：${result.directory}`];
+    return [...resetItems, `扫描目录：${result.directory}`];
   }
-  return result.results.map((item) => {
+  return [...resetItems, ...result.results.map((item) => {
     const fileName = item.file.split("/").pop() || item.file;
     if (item.status === "error") {
       return `${fileName}: 失败，${item.error || "未知错误"}`;
     }
-    const mode = item.replaced_existing_resume ? "已更新" : "已新增";
+    const mode = ingestResultMode(item);
     const blocked = item.storage_blocked_message || (item.storage_blocked_reason ? "项目边界未可信完成，项目未入库。" : "");
     const blockedText = blocked ? `，${blocked}` : "";
     return `${fileName}: ${mode}，${item.name || "未命名"}，工作 ${item.work_count ?? 0}，教育 ${item.education_count ?? 0}，项目 ${item.project_count ?? 0}${blockedText}`;
-  });
+  })];
+}
+
+function hasIngestionSuccess(result: IngestionResponse) {
+  return result.success_count > 0 && result.results.some((item) => item.status === "ok");
+}
+
+function hasIngestionFailure(result: IngestionResponse) {
+  return result.error_count > 0 || result.results.some((item) => item.status === "error");
+}
+
+function ingestResultMode(item: IngestionResult) {
+  if (item.merged_existing_candidate || ["email", "phone", "name"].includes(String(item.identity_match_source || ""))) {
+    const source = String(item.identity_match_source || "");
+    const sourceLabel = source === "email" ? "邮箱" : source === "phone" ? "手机号" : source === "name" ? "姓名" : "身份";
+    return `已更新同一候选人（${sourceLabel}匹配）`;
+  }
+  if (item.replaced_existing_resume) return "已刷新";
+  return "已新增";
 }
 
 function normalizeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
+  if (isUnauthorizedError(error)) {
+    return "访问密码无效或缺失。";
+  }
   if (/failed to fetch|fetch failed|load failed|networkerror/i.test(message)) {
     return "无法连接后端 API。请先启动：./.venv/bin/uvicorn resume_query_api.main:app --host 127.0.0.1 --port 8000";
   }
@@ -2013,4 +2788,9 @@ function normalizeError(error: unknown) {
     return "已有 resume 导入任务正在运行，请等当前任务结束后再试。";
   }
   return message;
+}
+
+function isUnauthorizedError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.startsWith("UNAUTHORIZED:");
 }

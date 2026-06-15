@@ -1,4 +1,14 @@
-"""YAML/env 配置加载入口。"""
+"""YAML/env configuration loading entrypoint.
+
+这个文件负责什么：
+  读取 configs/*.yaml，构造 ResumeQAConfig，并触发启动期结构校验。
+
+应该从哪个函数读起：
+  load_config() -> load_yaml()。
+
+不会负责什么：
+  不解释业务规则，不做 node 决策，不吞掉坏配置错误。
+"""
 
 from __future__ import annotations
 

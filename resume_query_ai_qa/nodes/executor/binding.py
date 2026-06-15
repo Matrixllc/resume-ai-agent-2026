@@ -1,4 +1,14 @@
-"""Argument binding helpers for executor tool calls."""
+"""Executor argument reference binding.
+
+这个文件负责什么：
+  把 ToolCallSpec.arguments 里的 `$ref` / `$foo.bar[]` 引用解析成真实工具参数。
+
+应该从哪个函数读起：
+  先读 iter_tool_calls() 理解执行顺序，再读 bind_argument_refs() 和 resolve_refs()。
+
+不会负责什么：
+  不调用工具，不校验 plan 合同，不决定工具是否允许执行。
+"""
 
 from __future__ import annotations
 
@@ -8,7 +18,7 @@ from resume_query_ai_qa.core.schemas import QueryPlan, ToolCallSpec
 
 
 def iter_tool_calls(plan: QueryPlan) -> Iterable[ToolCallSpec]:
-    """执行iter工具调用工具流程；负责参数绑定和结果封装，不生成最终答案。"""
+    """按 compiler 生成的顺序展开普通 plan 或 compound sub_tasks 中的工具调用。"""
     if plan.intent == "compound":
         for sub_task in plan.sub_tasks:
             yield from sub_task.tool_calls
@@ -17,7 +27,7 @@ def iter_tool_calls(plan: QueryPlan) -> Iterable[ToolCallSpec]:
 
 
 def plan_with_calls(plan: QueryPlan, calls: List[ToolCallSpec]) -> QueryPlan:
-    """使用更新后的工具调用重建计划并返回。"""
+    """把更新后的工具调用放回原 plan 形状，保留普通/compound 结构。"""
     if plan.intent != "compound":
         return plan.model_copy(update={"tool_calls": calls})
     next_index = 0
@@ -30,7 +40,7 @@ def plan_with_calls(plan: QueryPlan, calls: List[ToolCallSpec]) -> QueryPlan:
 
 
 def bind_argument_refs(call: ToolCallSpec, tool_context: dict[str, Any]) -> ToolCallSpec:
-    """执行bindargument引用工具流程；负责参数绑定和结果封装，不生成最终答案。"""
+    """解析单个工具调用参数里的引用；失败时写入 binding error 供 retry.py 包装。"""
     try:
         arguments = resolve_refs(call.arguments, tool_context)
     except ValueError as error:
@@ -39,7 +49,7 @@ def bind_argument_refs(call: ToolCallSpec, tool_context: dict[str, Any]) -> Tool
 
 
 def resolve_refs(value: Any, tool_context: dict[str, Any]) -> Any:
-    """解析参数中的工具结果引用并返回绑定值。"""
+    """递归解析字符串 `$ref`、结构化 `$ref`、list 和 dict 中的工具结果引用。"""
     if isinstance(value, str) and value.startswith("$"):
         return _resolve_ref(value, tool_context)
     if isinstance(value, list):
@@ -52,7 +62,7 @@ def resolve_refs(value: Any, tool_context: dict[str, Any]) -> Any:
 
 
 def _resolve_structured_ref(raw: dict[str, Any], tool_context: dict[str, Any]) -> Any:
-    """解析结构化参数引用并返回绑定值。"""
+    """解析 `{\"$ref\": root, \"path\": [...], \"map\": true}` 这种结构化引用。"""
     root = str(raw.get("$ref", "") or "").strip()
     if not root:
         raise ValueError("empty structured argument reference root")
@@ -76,7 +86,7 @@ def _resolve_structured_ref(raw: dict[str, Any], tool_context: dict[str, Any]) -
 
 
 def _resolve_ref(raw: str, tool_context: dict[str, Any]) -> Any:
-    """解析字符串参数引用并返回绑定值。"""
+    """解析 `$candidate_pool.resume_identity[]` 这种字符串路径引用。"""
     path = raw[1:].strip()
     if not path:
         raise ValueError("empty argument reference")
@@ -94,7 +104,7 @@ def _resolve_ref(raw: str, tool_context: dict[str, Any]) -> Any:
 
 
 def _read_path_part(value: Any, part: str) -> Any:
-    """执行read路径part工具流程；负责参数绑定和结果封装，不生成最终答案。"""
+    """从 dict / pydantic model / object / list 中读取引用路径的一段。"""
     if not part:
         return value
     if isinstance(value, list) and part.isdigit():
@@ -116,7 +126,7 @@ def _read_path_part(value: Any, part: str) -> Any:
 
 
 def _ensure_list(value: Any, raw: str) -> list:
-    """执行ensure列表工具流程；负责参数绑定和结果封装，不生成最终答案。"""
+    """确保当前引用值是列表；`[]` 和 map 语义都依赖列表输入。"""
     if not isinstance(value, list):
         raise ValueError(f"argument reference requires a list: {raw}")
     return value

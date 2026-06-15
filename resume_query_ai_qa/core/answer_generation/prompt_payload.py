@@ -1,4 +1,14 @@
-"""Prompt payload compaction for Aggregator LLM calls."""
+"""Prompt payload compaction for Aggregator LLM calls.
+
+这个文件负责什么：
+  把 question、query_frame、rule_draft、grounded_context、evidence 和工具摘要打包给 LLM。
+
+应该从哪个函数读起：
+  build_prompt_payload()。
+
+不会负责什么：
+  不调用 LLM，不生成答案，不修改 grounded facts。
+"""
 
 from __future__ import annotations
 
@@ -8,7 +18,7 @@ from resume_query_ai_qa.core.schemas import ToolResult
 
 
 def build_prompt_payload(question: str, query_frame: dict[str, Any], rule_draft: dict[str, Any], context: dict[str, Any], tool_results: list[ToolResult]) -> dict[str, Any]:
-    """构建提示词载荷并返回。"""
+    """构建 LLM 输入：query + YAML 框架 + grounded tool facts + selected evidence。"""
     return {
         "question": question,
         "query_frame": query_frame,
