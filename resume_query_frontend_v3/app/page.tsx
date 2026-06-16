@@ -21,6 +21,7 @@ import {
   Search,
   Send,
   Sparkles,
+  Trash2,
   Upload,
   UserRound,
   X,
@@ -45,6 +46,7 @@ import {
   QAEvidenceRef,
   askResumeQa,
   clearAccessToken,
+  clearResumeData,
   generateCandidateSummary,
   getAccessToken,
   getCandidateDetail,
@@ -217,14 +219,60 @@ export default function HomePage() {
       current_step: "正在提交重建入库任务",
       success_count: 0,
       error_count: 0,
-      message: "正在提交任务：先清空旧数据库和向量库，再遍历 resume 批量入库...",
-      recent_messages: ["正在提交任务：先清空旧数据库和向量库，再遍历 resume 批量入库..."],
+      message: "正在提交任务：先清空旧数据库和向量库，再遍历 data/resume 批量入库...",
+      recent_messages: ["正在提交任务：先清空旧数据库和向量库，再遍历 data/resume 批量入库..."],
     });
     startIngestionPolling();
     try {
       const previousIdentity = selectedIdentity;
       const result = await ingestResumeFiles("resume", true);
       await completeIngestionResult(result, previousIdentity);
+    } catch (err) {
+      reportError(err);
+    } finally {
+      await refreshIngestionStatus();
+      stopIngestionPolling();
+      ingestingRef.current = false;
+      setIngesting(false);
+    }
+  }
+
+  async function handleClearCandidates() {
+    if (ingestingRef.current) {
+      setIngestMessage("已有导入或清空任务正在运行，请等待当前任务完成。");
+      return;
+    }
+    ingestingRef.current = true;
+    setIngesting(true);
+    setError("");
+    setIngestMessage("");
+    setIngestDetails([]);
+    setIngestStatus({
+      running: true,
+      phase: "running",
+      mode: "clear",
+      directory: "data/resume",
+      uploaded_file: "",
+      total_files: 0,
+      current_index: 0,
+      current_file: "",
+      current_step: "清空候选人库",
+      success_count: 0,
+      error_count: 0,
+      message: "正在清空候选人库...",
+      recent_messages: ["正在清空候选人库..."],
+    });
+    startIngestionPolling();
+    try {
+      const result = await clearResumeData();
+      applyIngestionResultMessage(result, selectedIdentity);
+      setCandidates([]);
+      setSelectedIdentity("");
+      setCandidate(null);
+      setProjects(null);
+      setResumeDocument(null);
+      setSummary(null);
+      await loadCandidates();
     } catch (err) {
       reportError(err);
     } finally {
@@ -577,6 +625,7 @@ export default function HomePage() {
                 status={ingestStatus}
                 onUploadClick={() => uploadInputRef.current?.click()}
                 onScan={handleIngestResumes}
+                onClear={handleClearCandidates}
                 onRefreshCandidates={handleRefreshCandidates}
               />
               <input
@@ -650,6 +699,7 @@ function ResumeIngestionPanel({
   status,
   onUploadClick,
   onScan,
+  onClear,
   onRefreshCandidates,
 }: {
   ingesting: boolean;
@@ -659,6 +709,7 @@ function ResumeIngestionPanel({
   status: IngestionStatus | null;
   onUploadClick: () => void;
   onScan: () => void;
+  onClear: () => void;
   onRefreshCandidates: () => void;
 }) {
   return (
@@ -671,7 +722,7 @@ function ResumeIngestionPanel({
               简历入库
             </CardTitle>
             <CardDescription className="mt-1">
-              上传一份简历或扫描 data/resume 样例目录，入库后会出现在候选人信息和 AI 问答中。
+              上传简历、扫描 data/resume 样例目录，或清空当前候选人库。
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -680,8 +731,12 @@ function ResumeIngestionPanel({
               上传简历并入库
             </Button>
             <Button onClick={onScan} disabled={ingesting} aria-busy={ingesting} variant="outline">
-              {ingesting && status?.mode !== "upload" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DatabaseZap className="mr-2 h-4 w-4" />}
-              清空旧数据并遍历 resume
+              {ingesting && status?.mode === "directory" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DatabaseZap className="mr-2 h-4 w-4" />}
+              清空旧数据并遍历 data/resume
+            </Button>
+            <Button onClick={onClear} disabled={ingesting || refreshingCandidates} aria-busy={ingesting && status?.mode === "clear"} variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50">
+              {ingesting && status?.mode === "clear" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              清空候选人库
             </Button>
             <Button onClick={onRefreshCandidates} disabled={ingesting || refreshingCandidates} variant="outline">
               {refreshingCandidates ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
@@ -2741,7 +2796,10 @@ function normalizeTagValue(value: string) {
 
 function buildIngestDetails(result: IngestionResponse) {
   const resetItems = result.reset_summary?.enabled
-    ? [`已清空旧入库数据：删除 ${result.reset_summary.removed?.length || 0} 项 SQLite/Chroma 存储。`]
+    ? [
+        `已清空旧入库数据：删除 ${result.reset_summary.removed?.length || 0} 项 SQLite/Chroma 存储。`,
+        result.reset_summary.uploads_removed ? `已删除 ${result.reset_summary.uploads_removed.length} 个上传文件。` : "",
+      ].filter(Boolean)
     : [];
   if (!result.results.length) {
     return [...resetItems, `扫描目录：${result.directory}`];

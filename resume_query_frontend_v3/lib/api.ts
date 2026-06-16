@@ -150,6 +150,8 @@ export type IngestionResponse = {
     enabled?: boolean;
     removed?: string[];
     skipped_missing?: string[];
+    uploads_removed?: string[];
+    uploads_skipped_missing?: string[];
   };
   results: IngestionResult[];
 };
@@ -453,6 +455,13 @@ export async function ingestResumeFiles(directory = "resume", resetBeforeIngest 
   return apiFetch<IngestionResponse>("/ingestion/resumes", {
     method: "POST",
     body: JSON.stringify({ directory, reset_before_ingest: resetBeforeIngest }),
+  });
+}
+
+export async function clearResumeData() {
+  return apiFetch<IngestionResponse>("/ingestion/resumes/clear", {
+    method: "POST",
+    body: JSON.stringify({}),
   });
 }
 

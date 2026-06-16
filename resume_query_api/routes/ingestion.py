@@ -52,6 +52,16 @@ def ingest_resumes(request: IngestResumesRequest | None = None) -> dict:
         _INGESTION_LOCK.release()
 
 
+@router.post("/resumes/clear")
+def clear_resumes() -> dict:
+    if not _INGESTION_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="已有导入或清空任务正在运行，请等待当前任务完成。")
+    try:
+        return _clear_resumes()
+    finally:
+        _INGESTION_LOCK.release()
+
+
 @router.post("/resumes/upload")
 async def upload_resume(file: UploadFile = File(...)) -> dict:
     if not _INGESTION_LOCK.acquire(blocking=False):
@@ -168,6 +178,67 @@ def _ingest_resumes(request: IngestResumesRequest | None = None) -> dict:
         "message": final_message,
         "reset_summary": reset_summary,
         "results": results,
+    }
+
+
+def _clear_resumes() -> dict:
+    config = get_config()
+    resume_dir = Path(config.get("paths", {}).get("resume_dir") or "")
+    _set_status(
+        running=True,
+        phase="running",
+        mode="clear",
+        directory=str(resume_dir),
+        uploaded_file="",
+        total_files=0,
+        current_index=0,
+        current_file="",
+        current_step="清空候选人库",
+        success_count=0,
+        error_count=0,
+        message="正在清空候选人库...",
+        error_hint="",
+        recent_messages=["正在清空候选人库..."],
+    )
+    try:
+        reset_summary = _reset_ingestion_storage(config)
+        uploads_summary = _clear_uploads(config)
+    except Exception as error:
+        friendly_error = _friendly_ingestion_error(error)
+        _set_status(
+            running=False,
+            phase="done",
+            current_step="清空候选人库失败",
+            success_count=0,
+            error_count=1,
+            error_hint=friendly_error,
+            message=f"清空候选人库失败：{friendly_error}",
+        )
+        raise
+    reset_summary["uploads_removed"] = uploads_summary["removed"]
+    reset_summary["uploads_skipped_missing"] = uploads_summary["skipped_missing"]
+    message = (
+        "已清空候选人库："
+        f"删除 {len(reset_summary.get('removed', []) or [])} 项 SQLite/Chroma 存储，"
+        f"删除 {len(reset_summary.get('uploads_removed', []) or [])} 个上传文件。"
+    )
+    _set_status(
+        running=False,
+        phase="done",
+        current_step="清空候选人库完成",
+        success_count=0,
+        error_count=0,
+        error_hint="",
+        message=message,
+    )
+    return {
+        "directory": str(resume_dir),
+        "total_files": 0,
+        "success_count": 0,
+        "error_count": 0,
+        "message": message,
+        "reset_summary": reset_summary,
+        "results": [],
     }
 
 
@@ -327,6 +398,26 @@ def _reset_ingestion_storage(config: Dict[str, Any]) -> Dict[str, Any]:
         directory.mkdir(parents=True, exist_ok=True)
         report["recreated_dirs"].append(str(directory))
     clear_chroma_system_cache()
+    return report
+
+
+def _clear_uploads(config: Dict[str, Any]) -> Dict[str, Any]:
+    paths = dict(config.get("paths", {}) or {})
+    upload = dict(config.get("upload", {}) or {})
+    resume_dir = Path(paths["resume_dir"])
+    upload_dir = Path(upload.get("resume_upload_dir") or resume_dir / "uploads").resolve()
+    report: Dict[str, Any] = {"removed": [], "skipped_missing": []}
+    if not upload_dir.exists():
+        report["skipped_missing"].append(str(upload_dir))
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        return report
+    for item in sorted(upload_dir.iterdir()):
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
+        report["removed"].append(str(item))
+    upload_dir.mkdir(parents=True, exist_ok=True)
     return report
 
 
