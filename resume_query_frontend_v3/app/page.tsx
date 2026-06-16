@@ -89,6 +89,7 @@ export default function HomePage() {
   const [ingestMessage, setIngestMessage] = useState("");
   const [ingestDetails, setIngestDetails] = useState<string[]>([]);
   const [ingestStatus, setIngestStatus] = useState<IngestionStatus | null>(null);
+  const [ingestionFeedbackHidden, setIngestionFeedbackHidden] = useState(false);
   const [refreshingCandidates, setRefreshingCandidates] = useState(false);
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [llmChecking, setLlmChecking] = useState(false);
@@ -204,6 +205,7 @@ export default function HomePage() {
     }
     ingestingRef.current = true;
     setIngesting(true);
+    setIngestionFeedbackHidden(false);
     setError("");
     setIngestMessage("");
     setIngestDetails([]);
@@ -244,6 +246,7 @@ export default function HomePage() {
     }
     ingestingRef.current = true;
     setIngesting(true);
+    setIngestionFeedbackHidden(false);
     setError("");
     setIngestMessage("");
     setIngestDetails([]);
@@ -290,6 +293,7 @@ export default function HomePage() {
     }
     ingestingRef.current = true;
     setIngesting(true);
+    setIngestionFeedbackHidden(false);
     setError("");
     setIngestMessage("");
     setIngestDetails([]);
@@ -623,10 +627,12 @@ export default function HomePage() {
                 message={ingestMessage}
                 details={ingestDetails}
                 status={ingestStatus}
+                feedbackHidden={ingestionFeedbackHidden}
                 onUploadClick={() => uploadInputRef.current?.click()}
                 onScan={handleIngestResumes}
                 onClear={handleClearCandidates}
                 onRefreshCandidates={handleRefreshCandidates}
+                onHideFeedback={() => setIngestionFeedbackHidden(true)}
               />
               <input
                 ref={uploadInputRef}
@@ -697,21 +703,28 @@ function ResumeIngestionPanel({
   message,
   details,
   status,
+  feedbackHidden,
   onUploadClick,
   onScan,
   onClear,
   onRefreshCandidates,
+  onHideFeedback,
 }: {
   ingesting: boolean;
   refreshingCandidates: boolean;
   message: string;
   details: string[];
   status: IngestionStatus | null;
+  feedbackHidden: boolean;
   onUploadClick: () => void;
   onScan: () => void;
   onClear: () => void;
   onRefreshCandidates: () => void;
+  onHideFeedback: () => void;
 }) {
+  const showProgress = Boolean(status?.running || (ingesting && status?.mode === "upload" && status.phase !== "done"));
+  const showFeedback = !feedbackHidden && (Boolean(message) || showProgress);
+
   return (
     <Card className="border-emerald-200">
       <CardHeader>
@@ -751,19 +764,32 @@ function ResumeIngestionPanel({
           <InfoCell label="支持格式" value="PDF / DOC / DOCX" />
           <InfoCell label="批量扫描" value="先清空 SQLite/Chroma，再重建入库" />
         </div>
-        {message ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            <div>{message}</div>
-            {details.length ? (
-              <div className="mt-2 space-y-1 text-xs leading-5 text-emerald-700">
-                {details.map((item) => (
-                  <div key={item}>{item}</div>
-                ))}
+        {showFeedback ? (
+          <div className="relative space-y-3">
+            <button
+              type="button"
+              onClick={onHideFeedback}
+              className="absolute right-2 top-2 z-10 rounded-full p-1 text-slate-400 transition hover:bg-white/80 hover:text-slate-700"
+              aria-label="隐藏实时信息"
+              title="隐藏实时信息"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            {message ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 pr-10 text-sm text-emerald-800">
+                <div>{message}</div>
+                {details.length ? (
+                  <div className="mt-2 space-y-1 text-xs leading-5 text-emerald-700">
+                    {details.map((item) => (
+                      <div key={item}>{item}</div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
+            {showProgress ? <IngestionProgress status={status} /> : null}
           </div>
         ) : null}
-        {(status?.running || (ingesting && status?.mode === "upload" && status.phase !== "done")) ? <IngestionProgress status={status} /> : null}
       </CardContent>
     </Card>
   );
