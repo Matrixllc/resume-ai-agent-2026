@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Set
 
 from ..pipeline_yaml import ValidateConfig
@@ -93,6 +94,9 @@ def _validate_chunks(items: List[Dict[str, Any]], config: ValidateConfig) -> tup
         status = "accepted"
         if not str(item.get("chunk_text", "")).strip():
             continue
+        if _is_non_project_chunk(item):
+            reviews.append({"chunk_id": item.get("chunk_id", ""), "status": "rejected", "title": item.get("project_title", "") or item.get("chunk_title", ""), "reason": "non_project_chunk"})
+            continue
         if config.require_evidence and not dict(item.get("evidence", {}) or {}).get("block_ids"):
             status = "needs_review"
         if float(item.get("confidence", 0.0) or 0.0) < config.min_chunk_confidence:
@@ -100,3 +104,33 @@ def _validate_chunks(items: List[Dict[str, Any]], config: ValidateConfig) -> tup
         reviews.append({"chunk_id": item.get("chunk_id", ""), "status": status, "title": item.get("chunk_title", "")})
         accepted.append({**item, "validation_status": status})
     return accepted, reviews
+
+
+def _is_non_project_chunk(item: Dict[str, Any]) -> bool:
+    title = str(item.get("project_title", "") or item.get("chunk_title", "") or "").strip()
+    text = str(item.get("chunk_text", "") or "").strip()
+    lines = [line.strip() for line in "\n".join([title, text]).splitlines() if line.strip()]
+    if title and _is_non_project_line(title):
+        return True
+    return bool(lines) and all(_is_non_project_line(line) for line in lines)
+
+
+def _is_non_project_line(line: str) -> bool:
+    cleaned = re.sub(r"^[#\s•*-]+", "", str(line or "").strip()).strip()
+    normalized = re.sub(r"\s+", "", cleaned).lower()
+    if not normalized:
+        return True
+    prefixes = (
+        "框架:", "框架：", "语言:", "语言：", "技能:", "技能：", "个人技能",
+        "toefl", "gre", "ielts", "雅思", "手机", "电话", "邮箱", "微信",
+        "求职意向", "作品集", "图文作品集", "自我评价", "个人总结",
+    )
+    if any(normalized.startswith(prefix.replace(" ", "").lower()) for prefix in prefixes):
+        return True
+    if re.search(r"(?<!\d)(1[3-9]\d{9})(?!\d)", cleaned):
+        return True
+    if re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", cleaned):
+        return True
+    without_date = re.sub(r"(?:19|20)\d{2}(?:[./-]?\d{1,2}){0,2}", "", cleaned)
+    without_date = re.sub(r"(至今|present|current|至|到|-|–|—|~|/|\.|年|月|\s)", "", without_date, flags=re.IGNORECASE)
+    return without_date == ""

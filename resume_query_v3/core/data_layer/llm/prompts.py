@@ -137,6 +137,13 @@ def build_resume_check_prompt(*, rule_payload: Dict[str, Any], config: Dict[str,
 3. 只有当项目与下方某条 work_experience 在公司/岗位/时间/上下文上强绑定时，才填写 parent_work_experience_ref；
 4. 不要把纯职责句、岗位标题、教育经历标题当成项目；
 5. 不要把一个工作职责句拆成多个相似项目。
+6. 工作经历中如果出现独立项目标题行（例如“文档搜索与PDF解析系统开发(Node.js / Next.js)”）且后面有职责/成果说明，应作为 work_embedded_project 输出，并绑定对应 work_ref。
+7. 工作经历中只有泛职责描述、没有明确项目标题时，不要为了凑数量生成项目。
+
+非项目硬性排除：
+1. 不要把 `框架: ...`、`语言: ...`、`技能: ...`、`TOEFL/GRE/雅思/PMP/CFA`、联系方式、姓名、地点、纯日期、作品集、自我评价当成项目；
+2. 如果 evidence_block_ids 只覆盖技能/证书/联系方式/日期/个人信息块，这一项必须不输出到 projects；
+3. 技术栈和考试成绩只能进入 resume_level_skills、certifications_or_scores 或 skill_raw，不得作为 project_name_raw。
 
 通用字段输出要求：
 1. 如果下方已给出 contact/job_intent/location/overview/work/education 候选，优先保留这些原文可支撑的值；
@@ -309,6 +316,8 @@ def build_project_repair_prompt(*, rule_payload: Dict[str, Any], config: Dict[st
 8. 不新增原文不存在的项目、技术词、成果数字。
 9. 不抽取、不改写个人信息、工作经历、教育经历、联系方式、总览；这些字段已经由 rule/layout 负责。
 10. 可以输出 experience_tags 作为筛选标签估算；但不能用它反向修改工作经历字段。
+11. 工作经历中出现明确项目标题行且后面有职责/成果说明时，可输出 work_embedded_project，并填写 parent_work_experience_ref；
+12. 不要把 `框架: ...`、`语言: ...`、`TOEFL/GRE/雅思/PMP/CFA`、联系方式、姓名、地点、纯日期、作品集、自我评价当成项目。
 
 归一化约束：
 1. skill_normalized 只能从候选 concepts 中选择；

@@ -21,10 +21,15 @@ def get_project_evidence(resume_identity: str) -> ProjectEvidenceBundle:
         collection_name=config["storage"]["chroma_collection"],
     )
     project_id_by_title = {item.project_name_raw: item.project_id for item in candidate.projects if item.project_name_raw}
+    known_project_ids = {item.project_id for item in candidate.projects if item.project_id}
+    known_project_titles = {item.project_name_raw for item in candidate.projects if item.project_name_raw}
     chunks = []
     for row in reader.list_project_chunks(resume_identity, source_type="project_experience"):
         metadata = dict(row.get("metadata", {}) or {})
         project_title = str(metadata.get("project_title", "") or "")
+        metadata_project_id = str(metadata.get("project_id", "") or "")
+        if candidate.projects and project_title not in known_project_titles and metadata_project_id not in known_project_ids:
+            continue
         raw_chunk_text = str(row.get("chunk_text", "") or "")
         organization_raw = _clean_project_organization_raw(
             str(metadata.get("organization_raw", "") or ""),

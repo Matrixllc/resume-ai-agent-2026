@@ -536,6 +536,7 @@ def _extract_work_experiences(
     )
     entries = _parse_resume_entries(blocks=blocks, section_block_ids=section_block_ids, entry_kind="work")
     entries = _merge_layout_work_entries(entries, _parse_layout_work_entries(layout_lines or []))
+    entries = _attach_work_entry_block_evidence(entries, blocks=blocks, section_block_ids=section_block_ids)
     return _sort_temporal_entries(entries)
 
 
@@ -1123,6 +1124,75 @@ def _merge_layout_work_entries(existing: List[Dict[str, Any]], layout_entries: L
     return merged
 
 
+def _attach_work_entry_block_evidence(
+    entries: List[Dict[str, Any]],
+    *,
+    blocks: List[DocumentBlock],
+    section_block_ids: List[str],
+) -> List[Dict[str, Any]]:
+    if not entries or not section_block_ids:
+        return entries
+    block_map = {block.block_id: block for block in blocks}
+    work_blocks = [block_map[block_id] for block_id in section_block_ids if block_id in block_map]
+    if not work_blocks:
+        return entries
+    output: List[Dict[str, Any]] = []
+    used_ids: set[str] = set()
+    for entry in entries:
+        existing_ids = [str(item).strip() for item in list(dict(entry.get("evidence", {}) or {}).get("block_ids", []) or []) if str(item).strip()]
+        if existing_ids:
+            output.append(entry)
+            used_ids.update(existing_ids)
+            continue
+        matched = _match_work_entry_blocks(entry, work_blocks=work_blocks, used_ids=used_ids)
+        payload = dict(entry)
+        if matched:
+            payload["evidence"] = build_evidence(matched)
+            used_ids.update(block.block_id for block in matched)
+            if not str(payload.get("source", "") or "").strip():
+                payload["source"] = "layout_rule"
+        output.append(payload)
+    return output
+
+
+def _match_work_entry_blocks(entry: Dict[str, Any], *, work_blocks: List[DocumentBlock], used_ids: set[str]) -> List[DocumentBlock]:
+    raw_line = _normalize_for_substring_match(str(entry.get("raw_line", "") or ""))
+    summary = _normalize_for_substring_match(str(entry.get("summary_raw", "") or ""))
+    company = _normalize_for_substring_match(str(entry.get("company_name", "") or ""))
+    title = _normalize_for_substring_match(str(entry.get("job_title_raw", "") or ""))
+    date_text = _normalize_for_substring_match(" ".join([str(entry.get("start_date", "") or ""), str(entry.get("end_date", "") or "")]))
+    matched: List[DocumentBlock] = []
+    in_entry = False
+    for block in work_blocks:
+        text = _normalize_content_text(block.text)
+        key = _normalize_for_substring_match(text)
+        if not key or block.block_id in used_ids:
+            continue
+        is_header = (
+            (company and company in key)
+            or (title and title in key)
+            or (date_text and date_text in key)
+            or (company and company in raw_line and key in raw_line)
+        )
+        is_body = bool((raw_line and key in raw_line) or (summary and key in summary))
+        if is_header:
+            in_entry = True
+            matched.append(block)
+            continue
+        if in_entry and is_body:
+            matched.append(block)
+            continue
+        if in_entry and _looks_like_work_header_line(text):
+            break
+    return matched
+
+
+def _normalize_for_substring_match(value: str) -> str:
+    normalized = _normalize_content_text(value).lower()
+    normalized = re.sub(r"[\s#|｜,，.。;；:：()（）/\\-]+", "", normalized)
+    return normalized
+
+
 def _with_default_evidence(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [
         {**item, "evidence": item.get("evidence") or {"block_ids": [], "text_snippets": [], "page_refs": []}}
@@ -1651,8 +1721,7 @@ def _build_chunk_candidates(
         evidence_ids = list(dict(work_item.get("evidence", {}) or {}).get("block_ids", []) or [])
         group = [block for block in blocks if block.block_id in set(evidence_ids)]
         has_project_title = _work_group_has_project_title(group)
-        has_project_scope = has_project_title or _work_item_has_project_scope(work_item, group)
-        if not group or not has_project_scope:
+        if not group or not has_project_title:
             continue
         title = _title_for_work_candidate(work_item, group)
         if (not title or _is_role_only_title(title)) and has_project_title:
@@ -1670,6 +1739,7 @@ def _build_chunk_candidates(
                 title=title,
                 organization_raw=str(work_item.get("company_name", "")).strip() or _extract_organization_hint(group[0].text),
                 confidence=0.78 if has_project_title else 0.7,
+                parent_work_experience_ref=str(work_item.get("work_ref", "") or "").strip(),
             )
         )
         used_block_ids.update(block.block_id for block in group)
@@ -2067,6 +2137,7 @@ def _candidate_payload(
     title: str,
     organization_raw: str,
     confidence: float,
+    parent_work_experience_ref: str = "",
 ) -> Dict[str, Any]:
     text = "\n".join(block.text.strip() for block in group if block.text.strip())
     chunk_concepts, chunk_domains = _extract_concept_and_domain_tags(group, concepts, domains)
@@ -2085,11 +2156,14 @@ def _candidate_payload(
         "confidence": confidence,
         "evidence": build_evidence(group),
         "source": "rule",
+        "parent_work_experience_ref": parent_work_experience_ref,
     }
 
 
 def _title_for_work_candidate(work_item: Dict[str, Any], group: List[DocumentBlock]) -> str:
     for block in group:
+        if _is_bullet_or_detail_project_title_noise(block.text):
+            continue
         text = _clean_heading_text(block.text)
         if _looks_like_project_title(text):
             return text
@@ -2103,7 +2177,11 @@ def _title_for_work_candidate(work_item: Dict[str, Any], group: List[DocumentBlo
 
 
 def _work_group_has_project_title(group: List[DocumentBlock]) -> bool:
-    return any(_looks_like_project_title(_clean_heading_text(block.text)) for block in group)
+    return any(
+        not _is_bullet_or_detail_project_title_noise(block.text)
+        and _looks_like_project_title(_clean_heading_text(block.text))
+        for block in group
+    )
 
 
 def _work_item_has_project_scope(work_item: Dict[str, Any], group: List[DocumentBlock]) -> bool:
@@ -2130,6 +2208,8 @@ def _work_item_has_project_scope(work_item: Dict[str, Any], group: List[Document
 
 
 def _looks_like_project_title(text: str) -> bool:
+    if _is_bullet_or_detail_project_title_noise(text):
+        return False
     cleaned = _clean_project_title_candidate(text)
     if not cleaned or _is_section_heading(cleaned) or _is_role_only_title(cleaned):
         return False
@@ -2144,6 +2224,22 @@ def _looks_like_project_title(text: str) -> bool:
     )
     lowered = cleaned.lower()
     return any(token in cleaned or token in lowered for token in project_tokens)
+
+
+def _is_bullet_or_detail_project_title_noise(text: str) -> bool:
+    normalized = _normalize_content_text(text).strip()
+    if not normalized:
+        return False
+    if normalized.startswith(("-", "•", "*", "", "")):
+        return True
+    action_prefixes = (
+        "负责", "参与", "推动", "设计", "开发", "实现", "构建", "搭建", "优化", "使用", "支持",
+        "developed", "implemented", "designed", "built", "optimized",
+    )
+    lowered = normalized.lower()
+    if any(lowered.startswith(prefix.lower()) for prefix in action_prefixes):
+        return True
+    return len(normalized) > 80 and _looks_like_work_detail_line(normalized)
 
 
 def _clean_project_title_candidate(text: str) -> str:

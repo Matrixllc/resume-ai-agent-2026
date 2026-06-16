@@ -35,10 +35,20 @@ def build_project_chunks_from_rule_candidates(rule_payload: Dict[str, Any]) -> D
     candidate_profile = dict(rule_payload.get("candidate_profile", {}) or {})
     rule_candidates = list(rule_payload.get("project_candidate_groups", []) or [])
     cleanup_config = dict(rule_payload.get("project_cleanup_config", {}) or {})
+    project_chunks: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, Any]] = []
+    for item in rule_candidates:
+        chunk = _project_chunk_from_candidate(item, cleanup_config=cleanup_config)
+        reason = _non_project_rejection_reason(project=item, chunk=chunk, rule_payload=rule_payload)
+        if reason:
+            rejected.append(_rejected_project_payload(item, chunk, reason))
+            continue
+        project_chunks.append(chunk)
     return {
         **rule_payload,
         "candidate_profile": candidate_profile,
-        "project_chunks": [_project_chunk_from_candidate(item, cleanup_config=cleanup_config) for item in rule_candidates],
+        "project_chunks": project_chunks,
+        "rejected_non_project_blocks": rejected,
     }
 
 
@@ -83,8 +93,13 @@ def merge_boundary_selection(*, rule_payload: Dict[str, Any], llm_payload: Dict[
     if projects:
         filtered_projects: List[Dict[str, Any]] = []
         project_chunks = []
+        rejected_non_projects: List[Dict[str, Any]] = []
         for item in projects:
             chunk = _project_chunk_from_project(item, rule_candidates, cleanup_config=cleanup_config)
+            rejected_reason = _non_project_rejection_reason(project=item, chunk=chunk, rule_payload=rule_payload)
+            if rejected_reason:
+                rejected_non_projects.append(_rejected_project_payload(item, chunk, rejected_reason))
+                continue
             if not chunk or _is_role_only_project(project=item, chunk=chunk, work_experiences=merged_work_experiences):
                 continue
             filtered_projects.append(
@@ -98,13 +113,26 @@ def merge_boundary_selection(*, rule_payload: Dict[str, Any], llm_payload: Dict[
         projects = filtered_projects
     elif project_groups:
         project_chunks = []
+        rejected_non_projects = []
         for item in project_groups:
             chunk = _project_chunk_from_selection(item, rule_candidates, cleanup_config=cleanup_config)
+            rejected_reason = _non_project_rejection_reason(project=item, chunk=chunk, rule_payload=rule_payload)
+            if rejected_reason:
+                rejected_non_projects.append(_rejected_project_payload(item, chunk, rejected_reason))
+                continue
             if not chunk or _is_role_only_project(project=item, chunk=chunk, work_experiences=merged_work_experiences):
                 continue
             project_chunks.append(chunk)
     else:
-        project_chunks = [_project_chunk_from_candidate(item, cleanup_config=cleanup_config) for item in rule_candidates]
+        project_chunks = []
+        rejected_non_projects = []
+        for item in rule_candidates:
+            chunk = _project_chunk_from_candidate(item, cleanup_config=cleanup_config)
+            rejected_reason = _non_project_rejection_reason(project=item, chunk=chunk, rule_payload=rule_payload)
+            if rejected_reason:
+                rejected_non_projects.append(_rejected_project_payload(item, chunk, rejected_reason))
+                continue
+            project_chunks.append(chunk)
     project_count = len(projects) if projects else len(project_chunks)
     return {
         **rule_payload,
@@ -115,6 +143,7 @@ def merge_boundary_selection(*, rule_payload: Dict[str, Any], llm_payload: Dict[
         "project_count": project_count,
         "projects": projects,
         "project_chunks": project_chunks,
+        "rejected_non_project_blocks": rejected_non_projects,
     }
 
 
@@ -131,9 +160,14 @@ def merge_project_repair_selection(*, rule_payload: Dict[str, Any], llm_payload:
     cleanup_config = dict(rule_payload.get("project_cleanup_config", {}) or {})
     repaired_projects: List[Dict[str, Any]] = []
     project_chunks: List[Dict[str, Any]] = []
+    rejected_non_projects: List[Dict[str, Any]] = []
     for index, item in enumerate(projects, start=1):
         evidence_ids = _repair_evidence_ids(list(item.get("evidence_block_ids", []) or []), section_blocks)
         chunk = _project_chunk_from_repair_project(item, section_blocks, evidence_ids, index, cleanup_config=cleanup_config)
+        rejected_reason = _non_project_rejection_reason(project={**item, "evidence_block_ids": evidence_ids}, chunk=chunk, rule_payload=rule_payload)
+        if rejected_reason:
+            rejected_non_projects.append(_rejected_project_payload(item, chunk, rejected_reason))
+            continue
         if not chunk or _is_role_only_project(project=item, chunk=chunk, work_experiences=work_experiences):
             continue
         project_source_type = str(item.get("project_source_type", "") or "").strip()
@@ -158,6 +192,7 @@ def merge_project_repair_selection(*, rule_payload: Dict[str, Any], llm_payload:
         "project_count": len(repaired_projects) if repaired_projects else len(project_chunks),
         "projects": repaired_projects,
         "project_chunks": project_chunks,
+        "rejected_non_project_blocks": rejected_non_projects,
     }
 
 
@@ -450,6 +485,7 @@ def _project_chunk_from_repair_project(
 
 def _project_chunk_from_candidate(item: Dict[str, Any], cleanup_config: Dict[str, Any] | None = None) -> Dict[str, Any]:
     project_title = str(item.get("chunk_title", "")).strip()
+    candidate_type = str(item.get("candidate_type", "")).strip()
     organization_raw = _clean_project_organization_raw(
         str(item.get("organization_raw", "")).strip(),
         project_title=project_title,
@@ -475,7 +511,148 @@ def _project_chunk_from_candidate(item: Dict[str, Any], cleanup_config: Dict[str
         "confidence": float(item.get("confidence", 0.0) or 0.0),
         "evidence": dict(item.get("evidence", {}) or {}),
         "source": "rule_fallback",
-        "candidate_type": str(item.get("candidate_type", "")).strip(),
+        "candidate_type": candidate_type,
+        "project_source_type": _project_source_type_from_candidate_type(candidate_type),
+        "parent_work_experience_ref": str(item.get("parent_work_experience_ref", "")).strip(),
+    }
+
+
+def _project_source_type_from_candidate_type(candidate_type: str) -> str:
+    value = str(candidate_type or "").strip()
+    if value.startswith("work_embedded"):
+        return "work_embedded_project"
+    if value.startswith("standalone"):
+        return "standalone_project"
+    return value
+
+
+def _non_project_rejection_reason(*, project: Dict[str, Any], chunk: Dict[str, Any], rule_payload: Dict[str, Any]) -> str:
+    if not chunk:
+        return "empty_project_chunk"
+    title = str(
+        project.get("project_name_raw", "")
+        or project.get("project_title", "")
+        or chunk.get("project_title", "")
+        or chunk.get("chunk_title", "")
+    ).strip()
+    chunk_text = str(chunk.get("chunk_text", "") or "").strip()
+    evidence_ids = [
+        str(item).strip()
+        for item in list(
+            project.get("evidence_block_ids", [])
+            or dict(chunk.get("evidence", {}) or {}).get("block_ids", [])
+            or []
+        )
+        if str(item).strip()
+    ]
+    block_texts = _evidence_texts(rule_payload, evidence_ids)
+    searchable = "\n".join([title, chunk_text, *block_texts]).strip()
+    if not title and not chunk_text:
+        return "empty_project"
+    if _is_non_project_title(title):
+        return "non_project_title"
+    if evidence_ids and block_texts and all(_is_non_project_evidence_line(text) for text in block_texts):
+        return "non_project_evidence_only"
+    substantive_lines = [
+        line
+        for line in [title, *str(chunk_text or "").splitlines(), *block_texts]
+        if line.strip() and not _is_non_project_evidence_line(line)
+    ]
+    if not substantive_lines:
+        return "no_substantive_project_line"
+    if _looks_like_skill_list_only(searchable):
+        return "skill_list_only"
+    return ""
+
+
+def _evidence_texts(rule_payload: Dict[str, Any], evidence_ids: List[str]) -> List[str]:
+    if not evidence_ids:
+        return []
+    text_by_id: Dict[str, str] = {}
+    for collection_name in ("block_actions", "selected_blocks", "project_section_blocks", "project_repair_blocks"):
+        for block in list(rule_payload.get(collection_name, []) or []):
+            block_id = str(block.get("block_id", "") or "").strip()
+            text = str(block.get("text", "") or "").strip()
+            if block_id and text:
+                text_by_id[block_id] = text
+    return [text_by_id[block_id] for block_id in evidence_ids if block_id in text_by_id]
+
+
+def _is_non_project_title(title: str) -> bool:
+    cleaned = re.sub(r"^[#\s•*-]+", "", str(title or "").strip()).strip()
+    normalized = re.sub(r"\s+", "", cleaned).lower()
+    if not normalized:
+        return False
+    non_project_prefixes = (
+        "框架:", "框架：", "语言:", "语言：", "技能:", "技能：", "个人技能",
+        "toefl", "gre", "ielts", "雅思", "手机", "电话", "邮箱", "微信",
+        "求职意向", "作品集", "图文作品集", "自我评价", "个人总结",
+    )
+    if any(normalized.startswith(prefix.replace(" ", "").lower()) for prefix in non_project_prefixes):
+        return True
+    if _is_date_only_project_line(cleaned):
+        return True
+    if _looks_like_contact_line(cleaned):
+        return True
+    return False
+
+
+def _is_non_project_evidence_line(text: str) -> bool:
+    cleaned = re.sub(r"^[#\s•*-]+", "", str(text or "").strip()).strip()
+    if not cleaned:
+        return True
+    if _is_non_project_title(cleaned):
+        return True
+    if _is_date_only_project_line(cleaned) or _looks_like_contact_line(cleaned):
+        return True
+    lowered = cleaned.lower()
+    if re.search(r"\b(?:toefl|gre|ielts)\b", lowered):
+        return True
+    if len(cleaned) <= 48 and any(token in cleaned for token in ("美国", "中国", "上海", "北京", "深圳", "广州", "休斯顿")):
+        residue = re.sub(r"(美国|中国|上海|北京|深圳|广州|休斯顿|,|，|-|\s)", "", cleaned)
+        if not residue:
+            return True
+    return False
+
+
+def _looks_like_skill_list_only(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return False
+    lowered = cleaned.lower()
+    if not re.search(r"(框架|语言|技能|java|python|sql|redis|kafka|mongodb|node\.?js|spring)", lowered, flags=re.IGNORECASE):
+        return False
+    action_tokens = (
+        "开发", "实现", "设计", "构建", "优化", "负责", "参与", "提升",
+        "developed", "implemented", "designed", "built", "optimized",
+    )
+    project_tokens = ("项目", "系统", "平台", "搜索", "推荐", "解析", "引擎", "应用")
+    return not any(token in cleaned.lower() for token in action_tokens) and not any(token in cleaned for token in project_tokens)
+
+
+def _is_date_only_project_line(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    if not cleaned or len(cleaned) > 60:
+        return False
+    without_date = re.sub(r"(?:19|20)\d{2}(?:[./-]?\d{1,2}){0,2}", "", cleaned)
+    without_date = re.sub(r"(至今|present|current|至|到|-|–|—|~|/|\.|年|月|\s)", "", without_date, flags=re.IGNORECASE)
+    return without_date == ""
+
+
+def _looks_like_contact_line(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    if re.search(r"(?<!\d)(1[3-9]\d{9})(?!\d)", cleaned):
+        return True
+    if re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", cleaned):
+        return True
+    return bool(re.search(r"(微信|wechat|电话|手机|email|邮箱)", cleaned, flags=re.IGNORECASE))
+
+
+def _rejected_project_payload(project: Dict[str, Any], chunk: Dict[str, Any], reason: str) -> Dict[str, Any]:
+    return {
+        "reason": reason,
+        "project_name_raw": str(project.get("project_name_raw", "") or project.get("project_title", "") or chunk.get("project_title", "") or "").strip(),
+        "evidence_block_ids": list(project.get("evidence_block_ids", []) or dict(chunk.get("evidence", {}) or {}).get("block_ids", []) or []),
     }
 
 
