@@ -36,7 +36,7 @@ def validate_compiler_templates(
 
 def validate_template_bindings(workflow: str, value: Any, errors: list[str]) -> None:
     """递归校验 workflow arguments 中的 `$binding` 只使用支持项。"""
-    allowed = {"filter_args", "ranking_criteria_tool", "retrieval_query", "workflow_evidence_max_candidates"}
+    allowed = {"filter_args", "ranking_criteria_tool", "ranking_criteria_arguments", "retrieval_query", "workflow_evidence_max_candidates"}
     if isinstance(value, dict):
         if set(value) == {"$binding"} and str(value["$binding"]) not in allowed:
             errors.append(f"compiler_templates.yaml: workflow `{workflow}` uses unknown binding `{value['$binding']}`")

@@ -35,6 +35,7 @@ from resume_query_ai_qa.core.rules.plan_building import (
     tool_query,
     with_structured_refs,
 )
+from resume_query_ai_qa.core.rules.plan_building.query_args import ranking_target_text
 from resume_query_ai_qa.core.schemas import QueryPlan, RouterOutput, SemanticPlan, SubTaskPlan, ToolCallSpec
 
 
@@ -104,6 +105,7 @@ def declarative_workflow_plan(
     bindings: dict[str, Any] = {
         "filter_args": filter_args(question, router_output, session_context),
         "ranking_criteria_tool": ranking_criteria_tool(router_output, config),
+        "ranking_criteria_arguments": ranking_criteria_arguments(question, router_output),
         "retrieval_query": tool_query(question, "evidence_question", router_output),
         "workflow_evidence_max_candidates": int(evidence.get("max_candidates", 3) or 3),
     }
@@ -116,6 +118,12 @@ def declarative_workflow_plan(
         sub_tasks=tasks,
         notes=[str(item) for item in list(pattern.get("notes", []) or [])],
     ), question)
+
+
+def ranking_criteria_arguments(question: str, router_output: RouterOutput) -> dict[str, Any]:
+    """Build arguments for the workflow criteria tool."""
+    target = ranking_target_text(question, router_output)
+    return {"target_role": target} if target else {}
 
 
 def _with_ranking_output_limit(plan: QueryPlan, question: str) -> QueryPlan:

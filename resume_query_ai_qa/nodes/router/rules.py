@@ -306,7 +306,15 @@ def handle_list_or_profile_intent(draft: IntentDraft, ctx: RuleContext) -> None:
 
 def handle_scoped_collection_project_evidence_intent(draft: IntentDraft, ctx: RuleContext) -> None:
     """scoped candidate list + per-person project terms -> list + evidence."""
-    if not ctx.signals.scoped_project_evidence_request or ctx.signals.candidate_reference:
+    has_scoped_project_request = (
+        ctx.signals.scoped_project_evidence_request
+        or (
+            any(condition.type in {"domain", "skill", "concept", "job_intent"} for condition in ctx.conditions)
+            and contains_any(ctx.text, terms(ctx.config, "intent_rules", "candidate_list", "trigger_any"))
+            and contains_any(ctx.text, terms(ctx.config, "signals", "project_terms") + terms(ctx.config, "signals", "experience_terms"))
+        )
+    )
+    if not has_scoped_project_request or ctx.signals.candidate_reference:
         return
     draft.add("candidate_list", matched_terms(ctx.text, terms(ctx.config, "signals", "collection_request_terms")))
     draft.add(

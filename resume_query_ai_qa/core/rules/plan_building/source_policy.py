@@ -68,28 +68,46 @@ def bind_compound_consumers_to_canonical_source(plan: QueryPlan, router_output: 
     """绑定复合任务消费者集合TO规范来源并返回。"""
     if not plan.sub_tasks:
         return plan
-    canonical = next(
-        (call for call in plan_calls(plan) if is_candidate_source_tool(call.name) and call.name != "resolve_candidate_reference"),
-        None,
-    )
+    required_scope = candidate_required_scope(router_output)
+    canonical = _canonical_candidate_source(plan, required_scope)
     if canonical is None:
         return plan
     tasks: list[SubTaskPlan] = []
     seen = False
-    for task in plan.sub_tasks:
+    canonical_signature = source_signature(canonical)
+    first_task_has_source = bool(plan.sub_tasks and any(source_signature(call) == canonical_signature for call in plan.sub_tasks[0].tool_calls))
+    for index, task in enumerate(plan.sub_tasks):
         calls: list[ToolCallSpec] = []
+        if index == 0 and not first_task_has_source:
+            calls.append(canonical)
+            seen = True
         for call in task.tool_calls:
             if is_candidate_source_tool(call.name) and call.name != "resolve_candidate_reference":
-                if not seen:
-                    canonical = call
+                if source_signature(call) == canonical_signature and not seen:
                     seen = True
                     calls.append(call)
-                elif source_signature(call) != source_signature(canonical):
+                elif not required_scope and source_signature(call) != canonical_signature:
                     calls.append(call)
                 continue
             calls.append(replace_ref_root(call, "candidate_pool", canonical.output_key or "candidate_pool"))
         tasks.append(task.model_copy(update={"tool_calls": calls}))
     return plan.model_copy(update={"sub_tasks": tasks})
+
+
+def _canonical_candidate_source(plan: QueryPlan, required_scope: dict[str, Any]) -> ToolCallSpec | None:
+    """选择复合计划共享候选池来源。"""
+    sources = [
+        call
+        for call in plan_calls(plan)
+        if is_candidate_source_tool(call.name) and call.name != "resolve_candidate_reference"
+    ]
+    if required_scope:
+        for call in sources:
+            accepted = candidate_source_scope(call)
+            if accepted and all(accepted.get(key) == value for key, value in required_scope.items()):
+                return call
+        return ToolCallSpec(name="filter_candidates", arguments=required_scope, output_key="candidate_pool")
+    return sources[0] if sources else None
 
 
 def source_signature(call: ToolCallSpec) -> str:

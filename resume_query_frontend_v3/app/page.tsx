@@ -1176,7 +1176,7 @@ function AIQAWorkspace({
               <Input
                 value={question}
                 onChange={(event) => onQuestionChange(event.target.value)}
-                placeholder="例如：有多少个金融领域候选人，都有谁？"
+                placeholder="例如：有多少候选人，按综合匹配度排名？"
                 disabled={loading}
               />
               <Button type="submit" disabled={loading || !question.trim()} className="shrink-0">
@@ -1185,7 +1185,7 @@ function AIQAWorkspace({
               </Button>
             </form>
             <div className="mt-3 flex flex-wrap gap-2">
-              {["有多少个金融领域候选人，都有谁？", "孟连星和孔德程谁更好？", "How many candidates are there, who are they, and rank them"].map((sample) => (
+              {["有多少候选人，按综合匹配度排名？", "金融方向候选人有多少，都有谁？", "运营方向候选人有哪些项目经验？"].map((sample) => (
                 <button
                   key={sample}
                   type="button"

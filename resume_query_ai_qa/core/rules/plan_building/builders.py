@@ -296,6 +296,11 @@ def _criteria_source(context: BuildContext) -> ToolCallSpec:
     arguments: dict[str, Any] = {}
     if context.intent in {"candidate_ranking", "jd_scoring"} and context.tool_name == "load_default_jd_criteria":
         target = ranking_target_text(context.question, context.router_output)
+        if not target:
+            return ToolCallSpec(
+                name=context.config.first_tool_with_role("general_ranking_criteria"),
+                output_key=context.config.default_output_key(context.config.first_tool_with_role("general_ranking_criteria")),
+            )
         if target:
             arguments["target_role"] = target
     return ToolCallSpec(name=context.tool_name, arguments=arguments, output_key=context.config.default_output_key(context.tool_name))

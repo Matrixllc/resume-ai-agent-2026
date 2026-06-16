@@ -68,8 +68,7 @@ def ranking_target_text(question: str, router_output: RouterOutput) -> str:
             value = str(getattr(condition, "normalized_value", "") or getattr(condition, "raw_value", "") or "").strip()
             if value and value not in values:
                 values.append(value)
-    fallback = strip_intent_scaffolding(question, "candidate_ranking")
-    return " ".join(values) or fallback
+    return " ".join(values)
 
 
 def ranking_output_limit(question: str) -> int | None:

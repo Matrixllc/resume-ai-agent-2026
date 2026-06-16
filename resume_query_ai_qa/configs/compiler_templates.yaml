@@ -233,6 +233,7 @@ workflows:
         requires_evidence: true
         tool_calls:
           - tool: {$binding: ranking_criteria_tool}
+            arguments: {$binding: ranking_criteria_arguments}
             output_key: criteria
           - tool: score_candidates_for_jd
             arguments:
