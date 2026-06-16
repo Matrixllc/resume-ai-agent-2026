@@ -27,6 +27,7 @@ data/resume/*
 !data/resume/**/*.doc
 !data/resume/**/*.docx
 !data/resume/**/*.pdf
+data/resume/uploads/
 !data/resume/.gitkeep
 data/structured/
 data/vector/
