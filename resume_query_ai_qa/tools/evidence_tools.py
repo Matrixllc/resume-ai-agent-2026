@@ -52,6 +52,11 @@ def get_candidate_evidence(
         refs.extend(_work_vector_refs(resume_identity, candidate_name=candidate_name, query_terms=query_terms))
     if scope in {"project", "both"}:
         refs.extend(_project_vector_refs(resume_identity, candidate_name=candidate_name, query_terms=query_terms))
+    if not refs and query_terms and _is_scope_browse_query(query or ""):
+        if scope in {"work", "both"}:
+            refs.extend(_work_vector_refs(resume_identity, candidate_name=candidate_name, query_terms=[]))
+        if scope in {"project", "both"}:
+            refs.extend(_project_vector_refs(resume_identity, candidate_name=candidate_name, query_terms=[]))
     return refs[: max(limit, 0)]
 
 
@@ -139,6 +144,13 @@ def _work_vector_refs(resume_identity: str, *, candidate_name: str, query_terms:
             )
         )
     return refs
+
+
+def _is_scope_browse_query(query: str) -> bool:
+    text = str(query or "")
+    return any(token in text for token in ("项目经历", "项目信息", "项目经验", "工作经历", "工作信息", "工作内容", "经历")) and any(
+        token in text for token in ("提出", "提取", "生成", "面试", "问题", "追问")
+    )
 
 
 def hybrid_search_candidates(
