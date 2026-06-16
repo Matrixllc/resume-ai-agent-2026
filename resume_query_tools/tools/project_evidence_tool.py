@@ -22,7 +22,7 @@ def get_project_evidence(resume_identity: str) -> ProjectEvidenceBundle:
     )
     project_id_by_title = {item.project_name_raw: item.project_id for item in candidate.projects if item.project_name_raw}
     chunks = []
-    for row in reader.list_project_chunks(resume_identity):
+    for row in reader.list_project_chunks(resume_identity, source_type="project_experience"):
         metadata = dict(row.get("metadata", {}) or {})
         project_title = str(metadata.get("project_title", "") or "")
         raw_chunk_text = str(row.get("chunk_text", "") or "")
@@ -37,6 +37,8 @@ def get_project_evidence(resume_identity: str) -> ProjectEvidenceBundle:
                 resume_identity=str(metadata.get("resume_identity", "") or resume_identity),
                 project_id=project_id_by_title.get(project_title, str(metadata.get("project_id", "") or "")),
                 vector_id=str(row.get("vector_id", "") or ""),
+                source_type=str(metadata.get("source_type", "") or "project_experience"),
+                evidence_origin="chroma",
                 project_title=project_title,
                 project_summary=str(metadata.get("project_summary", "") or ""),
                 chunk_text=_clean_display_chunk_text(

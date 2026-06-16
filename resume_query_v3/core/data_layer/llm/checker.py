@@ -772,6 +772,8 @@ def _clean_project_chunk_text(
         if index == 0:
             output.append(line)
             continue
+        if _is_project_stop_line(line):
+            break
         if _is_project_metadata_only_line(
             line,
             title_key=title_key,
@@ -785,6 +787,28 @@ def _clean_project_chunk_text(
             break
         output.append(line)
     return "\n".join(output).strip()
+
+
+def _is_project_stop_line(line: str) -> bool:
+    cleaned = re.sub(r"^[#\s•*-]+", "", str(line or "").strip()).strip()
+    normalized = re.sub(r"\s+", "", cleaned).lower()
+    if not normalized:
+        return False
+    exact_or_prefix = (
+        "toefl",
+        "gre",
+        "语言:",
+        "语言：",
+        "框架:",
+        "框架：",
+        "技能:",
+        "技能：",
+        "热爱生活",
+        "noneedforrudecomments",
+    )
+    if any(normalized.startswith(token.replace(" ", "").lower()) for token in exact_or_prefix):
+        return True
+    return "no need for rude comments" in cleaned.lower()
 
 
 def _looks_like_numbered_next_project_boundary(line: str) -> bool:

@@ -46,23 +46,32 @@ def get_classified_projects_display(resume_identity: str) -> DisplayClassifiedPr
     candidate = get_candidate_profile_display(resume_identity)
     evidence_by_id = {item.project_id: item for item in full.evidence_chunks if item.project_id}
     evidence_by_title = {item.project_title: item for item in full.evidence_chunks if item.project_title}
+    display_chunks = [
+        DisplayEvidenceChunk(
+            project_id=item.project_id,
+            project_title=item.project_title,
+            source_type=item.source_type,
+            evidence_origin=item.evidence_origin or "chroma",
+            vector_id=item.vector_id,
+            project_summary=item.project_summary,
+            chunk_text=item.chunk_text,
+            organization_raw=item.organization_raw,
+            date_range_raw=item.date_range_raw,
+            project_tags=item.project_tags,
+        )
+        for item in full.evidence_chunks
+    ]
+    covered_keys = {(item.project_id, item.project_title) for item in full.evidence_chunks}
+    for project in [*full.ordinary_projects, *full.work_embedded_projects]:
+        if (project.project_id, project.project_name_raw) in covered_keys:
+            continue
+        display_chunks.append(_fallback_project_chunk(project))
     return DisplayClassifiedProjectsResponse(
         resume_identity=resume_identity,
         ordinary_projects=[_display_project(item, evidence_by_id=evidence_by_id, evidence_by_title=evidence_by_title) for item in full.ordinary_projects],
         work_embedded_projects=[_display_project(item, evidence_by_id=evidence_by_id, evidence_by_title=evidence_by_title) for item in full.work_embedded_projects],
         work_experiences=candidate.work_experiences,
-        evidence_chunks=[
-            DisplayEvidenceChunk(
-                project_id=item.project_id,
-                project_title=item.project_title,
-                project_summary=item.project_summary,
-                chunk_text=item.chunk_text,
-                organization_raw=item.organization_raw,
-                date_range_raw=item.date_range_raw,
-                project_tags=item.project_tags,
-            )
-            for item in full.evidence_chunks
-        ],
+        evidence_chunks=display_chunks,
     )
 
 
@@ -122,4 +131,30 @@ def _display_project(project, *, evidence_by_id=None, evidence_by_title=None) ->
         role_raw=project.role_raw,
         role_normalized=project.role_normalized,
         tags=_display_tags(project.tags),
+    )
+
+
+def _fallback_project_chunk(project) -> DisplayEvidenceChunk:
+    tags = [tag.tag_value for tag in project.tags if tag.tag_value]
+    details = [
+        part
+        for part in [
+            project.organization_raw,
+            project.date_range_raw,
+            project.role_raw or project.role_normalized,
+            "、".join(tags[:8]),
+        ]
+        if part
+    ]
+    return DisplayEvidenceChunk(
+        project_id=project.project_id,
+        project_title=project.project_name_raw,
+        source_type="project_experience",
+        evidence_origin="sql_fallback",
+        vector_id="",
+        project_summary=" · ".join(details),
+        chunk_text=" · ".join(details),
+        organization_raw=project.organization_raw,
+        date_range_raw=project.date_range_raw,
+        project_tags=tags,
     )

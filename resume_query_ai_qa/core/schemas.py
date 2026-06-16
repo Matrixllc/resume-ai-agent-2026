@@ -21,6 +21,8 @@ IntentName = Literal[
 ]
 
 EvidenceStrength = Literal[
+    "project_experience",
+    "work_experience",
     "project_evidence",
     "project_tags",
     "domain_tags",

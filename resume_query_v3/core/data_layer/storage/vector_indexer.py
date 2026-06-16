@@ -49,7 +49,7 @@ def build_vector_payload(*, chunk_payloads: List[Dict[str, Any]], config: Dict[s
                 "project_id": project_id,
                 "vector_id": f"{identity}:{project_id}" if identity else project_id,
                 "embedding_model": _embedding_model_name(config),
-                "schema_version": "v3_project_chunk_1",
+                "schema_version": "v3_evidence_chunk_1",
                 "embedding": vector,
             }
         )

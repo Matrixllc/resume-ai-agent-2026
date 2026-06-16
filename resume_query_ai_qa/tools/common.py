@@ -137,11 +137,11 @@ def matched_terms(text: str, terms: Iterable[str]) -> List[str]:
     return [str(term) for term in terms if normalize_key(term) and normalize_key(term) in normalized]
 
 
-def vector_search_rows(*, query: str, candidate_ids: List[str] | None, top_k: int) -> tuple[List[Dict[str, Any]], List[str]]:
+def vector_search_rows(*, query: str, candidate_ids: List[str] | None, top_k: int, source_types: List[str] | None = None) -> tuple[List[Dict[str, Any]], List[str]]:
     """获取向量检索数据行集合并返回。"""
     config = get_tools_config()
     reader = ResumeVectorReader(persist_dir=config["paths"]["chroma_dir"], collection_name=config["storage"]["chroma_collection"])
-    result = reader.search_project_chunks(query=query, top_k=top_k, candidate_ids=candidate_ids)
+    result = reader.search_project_chunks(query=query, top_k=top_k, candidate_ids=candidate_ids, source_types=source_types)
     rows = result.get("rows", []) if isinstance(result, dict) else []
     warnings = result.get("warnings", []) if isinstance(result, dict) else []
     return [row for row in rows if isinstance(row, dict)], [str(item) for item in warnings if str(item).strip()]
@@ -157,7 +157,8 @@ def vector_evidence_refs(rows: List[Dict[str, Any]], *, candidate_name: str) -> 
         if not evidence_id or evidence_id in seen:
             continue
         seen.add(evidence_id)
-        refs.append(EvidenceRef(source_type="project_evidence", resume_identity=str(metadata.get("resume_identity", "") or ""), candidate_name=candidate_name, project_id=str(metadata.get("project_id", "") or ""), project_title=str(metadata.get("project_title", "") or ""), evidence_id=evidence_id, text=str(row.get("chunk_text", "") or ""), strength=100))
+        source_type = str(metadata.get("source_type", "") or "project_experience")
+        refs.append(EvidenceRef(source_type=source_type if source_type in {"project_experience", "work_experience"} else "project_experience", resume_identity=str(metadata.get("resume_identity", "") or ""), candidate_name=candidate_name, project_id=str(metadata.get("project_id", "") or ""), project_title=str(metadata.get("project_title", "") or ""), evidence_id=evidence_id, text=str(row.get("chunk_text", "") or ""), strength=100))
     return refs
 
 

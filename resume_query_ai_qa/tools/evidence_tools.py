@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 from resume_query_tools import get_candidate_profile, get_project_evidence
+from resume_query_tools.config import get_tools_config
+from resume_query_tools.stores.vector_reader import ResumeVectorReader
 from resume_query_ai_qa.core.schemas import EvidenceRef
 
 from .candidate_tools import filter_candidates, list_all_candidates
@@ -31,75 +33,25 @@ def get_candidate_evidence(
     *,
     query: str | None = None,
     limit: int = 8,
+    scope: Literal["work", "project", "both"] = "both",
 ) -> List[EvidenceRef]:
-    """返回单个候选人的项目级证据引用。
+    """返回单个候选人的经历证据引用。
 
-    数据来源主要是 Chroma project chunks，必要时用 SQLite project manifest 做
-    补充。project evidence 是本系统里的强证据，这里会统一包装成 EvidenceRef，
-    供 execution_validator / answer_validator 检查答案是否有事实支撑。
+    数据来源只使用 Chroma evidence chunks。scope 用于区分工作经历、项目经历或二者。
     """
-    bundle = get_project_evidence(resume_identity)
     candidate_name = ""
     try:
-        candidate_name = str(get_candidate_profile(resume_identity).name.value or "")
+        detail = get_candidate_profile(resume_identity)
+        candidate_name = str(detail.name.value or "")
     except Exception:
-        # 候选人名只用于展示，不影响证据是否可用；读取失败时保留空名继续返回证据。
+        detail = None
         candidate_name = ""
     refs: List[EvidenceRef] = []
     query_terms = split_terms(clean_retrieval_query(query or ""))
-    for chunk in bundle.evidence_chunks:
-        searchable = " ".join(
-            [
-                chunk.project_title,
-                chunk.project_summary,
-                chunk.chunk_text,
-                " ".join(chunk.project_tags),
-            ]
-        )
-        if query_terms and not matches_any(searchable, query_terms):
-            continue
-        refs.append(
-            EvidenceRef(
-                source_type="project_evidence",
-                resume_identity=resume_identity,
-                candidate_name=candidate_name,
-                project_id=chunk.project_id,
-                project_title=chunk.project_title,
-                evidence_id=chunk.vector_id,
-                text=chunk.chunk_text,
-                strength=100,
-            )
-        )
-    if not refs:
-        try:
-            detail = get_candidate_profile(resume_identity)
-            candidate_name = str(detail.name.value or candidate_name)
-            for project in detail.projects:
-                searchable = " ".join(
-                    [
-                        project.project_name_raw,
-                        project.organization_raw,
-                        project.date_range_raw,
-                        " ".join(tag.tag_value for tag in project.tags),
-                    ]
-                )
-                if query_terms and not matches_any(searchable, query_terms):
-                    continue
-                refs.append(
-                    EvidenceRef(
-                        source_type="project_evidence",
-                        resume_identity=resume_identity,
-                        candidate_name=candidate_name,
-                        project_id=project.project_id,
-                        project_title=project.project_name_raw,
-                        evidence_id="|".join(project.evidence_block_ids) or project.project_id,
-                        text=searchable.strip(),
-                        strength=80,
-                    )
-                )
-        except Exception as error:
-            # 结构化 profile 是 Chroma 证据为空时的补充来源；读取失败不能伪造成证据。
-            _ = error
+    if scope in {"work", "both"}:
+        refs.extend(_work_vector_refs(resume_identity, candidate_name=candidate_name, query_terms=query_terms))
+    if scope in {"project", "both"}:
+        refs.extend(_project_vector_refs(resume_identity, candidate_name=candidate_name, query_terms=query_terms))
     return refs[: max(limit, 0)]
 
 
@@ -109,14 +61,16 @@ def search_candidate_evidence(
     candidate_ids: List[str] | None = None,
     limit_per_candidate: int = 5,
     max_candidates: int | None = None,
+    scope: Literal["work", "project", "both"] = "both",
 ) -> Dict[str, List[EvidenceRef]]:
-    """为一个或多个候选人检索项目证据。
+    """为一个或多个候选人检索经历证据。
 
-    数据来源：每个候选人的 Chroma 项目证据和项目 manifest。
+    数据来源：每个候选人的 Chroma 经历证据。
 
     参数：
     - query：证据检索词，通常来自 normalized_conditions/retrieval_terms。
     - candidate_ids：限定候选人范围；为空时可查全量。
+    - scope：work/project/both，限定工作经历、项目经历或二者。
     - max_candidates：限制最多检查多少候选人，避免开放召回过慢。
 
     边界：只返回证据，不判断“谁最适合”，不生成最终中文答案。
@@ -131,11 +85,60 @@ def search_candidate_evidence(
             resume_identity,
             query=query,
             limit=limit_per_candidate,
+            scope=scope,
         )
         if not refs and not query:
-            refs = get_candidate_evidence(resume_identity, limit=limit_per_candidate)
+            refs = get_candidate_evidence(resume_identity, limit=limit_per_candidate, scope=scope)
         output[resume_identity] = refs
     return output
+
+
+def _project_vector_refs(resume_identity: str, *, candidate_name: str, query_terms: List[str]) -> List[EvidenceRef]:
+    refs: List[EvidenceRef] = []
+    bundle = get_project_evidence(resume_identity)
+    for chunk in bundle.evidence_chunks:
+        searchable = " ".join([chunk.project_title, chunk.project_summary, chunk.chunk_text, " ".join(chunk.project_tags)])
+        if query_terms and not matches_any(searchable, query_terms):
+            continue
+        refs.append(
+            EvidenceRef(
+                source_type="project_experience",
+                resume_identity=resume_identity,
+                candidate_name=candidate_name,
+                project_id=chunk.project_id,
+                project_title=chunk.project_title,
+                evidence_id=chunk.vector_id,
+                text=chunk.chunk_text,
+                strength=100,
+            )
+        )
+    return refs
+
+
+def _work_vector_refs(resume_identity: str, *, candidate_name: str, query_terms: List[str]) -> List[EvidenceRef]:
+    config = get_tools_config()
+    reader = ResumeVectorReader(persist_dir=config["paths"]["chroma_dir"], collection_name=config["storage"]["chroma_collection"])
+    refs: List[EvidenceRef] = []
+    for row in reader.list_project_chunks(resume_identity, source_type="work_experience"):
+        metadata = dict(row.get("metadata", {}) or {})
+        text = str(row.get("chunk_text", "") or "")
+        searchable = " ".join([text, str(metadata.get("company", "") or ""), str(metadata.get("title", "") or ""), str(metadata.get("date_range_raw", "") or "")])
+        if query_terms and not matches_any(searchable, query_terms):
+            continue
+        refs.append(
+            EvidenceRef(
+                source_type="work_experience",
+                resume_identity=resume_identity,
+                candidate_name=candidate_name,
+                project_id=str(metadata.get("project_id", "") or ""),
+                project_title=str(metadata.get("company", "") or metadata.get("project_title", "") or ""),
+                evidence_id=str(row.get("vector_id", "") or ""),
+                text=text,
+                summary=str(metadata.get("project_summary", "") or ""),
+                strength=100,
+            )
+        )
+    return refs
 
 
 def hybrid_search_candidates(

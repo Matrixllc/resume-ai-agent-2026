@@ -109,6 +109,8 @@ class ProjectEvidenceDTO(BaseModel):
     resume_identity: str = ""
     project_id: str = ""
     vector_id: str = ""
+    source_type: str = ""
+    evidence_origin: str = ""
     project_title: str = ""
     project_summary: str = ""
     chunk_text: str = ""
@@ -225,6 +227,9 @@ class DisplayProject(BaseModel):
 class DisplayEvidenceChunk(BaseModel):
     project_id: str = ""
     project_title: str = ""
+    source_type: str = ""
+    evidence_origin: str = ""
+    vector_id: str = ""
     project_summary: str = ""
     chunk_text: str = ""
     organization_raw: str = ""

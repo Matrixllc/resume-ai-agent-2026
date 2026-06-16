@@ -62,6 +62,7 @@ def build_storage_summary(payload: Dict[str, Any], chunk_vectors: List[Dict[str,
         "project_manifest_rows": project_manifest_rows,
         "project_tag_rows": project_tag_rows,
         "project_chunks_prepared_count": len(chunk_vectors),
+        "evidence_chunks_prepared_count": len(chunk_vectors),
         "vector_rows_skipped_no_embedding": len(chunk_vectors) - len(vector_rows),
         "vector_rows": vector_rows,
     }
@@ -177,6 +178,7 @@ def _vector_rows(chunk_vectors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             {
                 "chunk_id": row.get("chunk_id", ""),
                 "vector_id": row.get("vector_id", ""),
+                "source_type": row.get("source_type", "project_experience"),
                 "resume_identity": row.get("resume_identity", ""),
                 "project_id": row.get("project_id", ""),
                 "candidate_type": row.get("candidate_type", ""),

@@ -241,8 +241,12 @@ def _write_storage_and_artifacts_node(
 ) -> Dict[str, Any]:
     _progress(progress_callback, "5/6 write SQL rows and Chroma vectors")
     storage_payload = _apply_storage_gate_node(validated=validated)
+    evidence_chunks = [
+        *_work_evidence_chunks(storage_payload.get("work_experiences", []) or []),
+        *list(storage_payload.get("project_chunks", []) or []),
+    ]
     chunk_vectors = build_vector_payload(
-        chunk_payloads=storage_payload.get("project_chunks", []) or [],
+        chunk_payloads=evidence_chunks,
         config=config,
         resume_identity=resume_identity,
     )
@@ -280,6 +284,38 @@ def _write_storage_and_artifacts_node(
 def _progress(callback: Callable[[str], None] | None, message: str) -> None:
     if callback is not None:
         callback(message)
+
+
+def _work_evidence_chunks(work_experiences: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    chunks: List[Dict[str, Any]] = []
+    for index, item in enumerate(work_experiences, start=1):
+        raw_line = str(item.get("raw_line", "") or item.get("summary_raw", "") or "").strip()
+        if not raw_line:
+            continue
+        company = str(item.get("company_name", "") or "").strip()
+        title = str(item.get("job_title_raw", "") or "").strip()
+        date_range = " - ".join(part for part in [str(item.get("start_date", "") or "").strip(), str(item.get("end_date", "") or "").strip()] if part)
+        work_ref = str(item.get("work_ref", "") or "").strip() or f"work_{index}"
+        chunks.append(
+            {
+                "chunk_id": f"work_{work_ref}",
+                "source_type": "work_experience",
+                "project_id": work_ref,
+                "project_title": company or title or work_ref,
+                "project_summary": raw_line[:180],
+                "chunk_text": raw_line,
+                "source_section": "work_experience",
+                "organization_raw": company,
+                "date_range_raw": date_range,
+                "title": title,
+                "company": company,
+                "project_tags": [],
+                "confidence": float(item.get("confidence", 0.0) or 0.0),
+                "evidence": dict(item.get("evidence", {}) or {}),
+                "source": str(item.get("source", "") or "").strip(),
+            }
+        )
+    return chunks
 
 
 def _assemble_output(

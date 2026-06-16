@@ -99,6 +99,8 @@ def _clean_evidence_text(value: str, title: str = "") -> str:
 
 def _source_label(source_type: str) -> str:
     return {
+        "project_experience": "项目经历",
+        "work_experience": "工作经历",
         "project_evidence": "项目证据",
         "project_tags": "项目标签",
         "domain_tags": "领域标签",

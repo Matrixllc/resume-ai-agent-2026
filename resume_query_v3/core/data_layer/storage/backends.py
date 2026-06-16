@@ -95,11 +95,15 @@ class ChromaVectorBackend:
             documents.append(text)
             metadatas.append(
                 {
+                    "source_type": str(item.get("source_type", "") or "project_experience").strip(),
                     "project_title": str(item.get("project_title", "") or item.get("chunk_title", "")).strip(),
+                    "title": str(item.get("title", "") or item.get("project_title", "") or item.get("chunk_title", "")).strip(),
+                    "company": str(item.get("company", "") or item.get("organization_raw", "")).strip(),
                     "project_summary": str(item.get("project_summary", "")).strip(),
                     "source_section": str(item.get("source_section", "")).strip(),
                     "organization_raw": str(item.get("organization_raw", "")).strip(),
                     "date_range_raw": str(item.get("date_range_raw", "")).strip(),
+                    "chunk_text": text,
                     "project_tags": json.dumps([tag.get("value", "") for tag in list(item.get("project_tags", []) or [])], ensure_ascii=False),
                     "evidence_block_ids": json.dumps(list(dict(item.get("evidence", {}) or {}).get("block_ids", []) or []), ensure_ascii=False),
                     "embedding_model": str(item.get("embedding_model", "")).strip(),

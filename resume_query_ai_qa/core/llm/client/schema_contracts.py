@@ -27,7 +27,7 @@ def compact_json_contract(schema: Type[BaseModel]) -> str:
                 ],
                 "used_evidence_refs": [
                     {
-                        "source_type": "project_evidence|project_tags|domain_tags|candidate_tags|work_experiences|education_experiences",
+                        "source_type": "project_experience|work_experience|project_evidence|project_tags|domain_tags|candidate_tags|work_experiences|education_experiences",
                         "resume_identity": "string",
                         "candidate_name": "string",
                         "project_id": "string",

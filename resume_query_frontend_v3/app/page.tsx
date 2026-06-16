@@ -965,7 +965,7 @@ function ProjectsView({ projects }: { projects: ClassifiedProjects | null }) {
         <CardContent className="space-y-4">
           <SectionLabel title="项目" count={allProjects.length} />
           {allProjects.map((item) => (
-            <ProjectRow key={`${item.project_id}-${item.project_name_raw}`} project={item} body={projectDisplayText(item, projects.evidence_chunks)} />
+            <ProjectRow key={`${item.project_id}-${item.project_name_raw}`} project={item} evidence={projectDisplayEvidence(item, projects.evidence_chunks)} />
           ))}
           {!allProjects.length ? <MutedText text="暂无项目信息。" /> : null}
         </CardContent>
@@ -1383,7 +1383,7 @@ function QAEvidencePanel({ response }: { response?: QAAskResponse }) {
     <Card>
       <CardHeader>
         <CardTitle>本轮关键依据</CardTitle>
-        <CardDescription>按项目、工作经历和弱证据分类，只保留关键依据。</CardDescription>
+        <CardDescription>只展示 Query-AI 从 Chroma 检索到的 evidence。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {evidenceRefs.length ? (
@@ -1395,6 +1395,7 @@ function QAEvidencePanel({ response }: { response?: QAAskResponse }) {
                   <div key={ref.evidence_id || `${ref.resume_identity}-${index}`} className="rounded-lg border border-slate-200 bg-white p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge>{ref.candidate_name || ref.resume_identity || "候选人"}</Badge>
+                      <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Chroma evidence</Badge>
                       <span className="text-sm font-medium text-slate-900">{ref.project_title || ref.project_id || sourceTypeLabel(ref.source_type)}</span>
                     </div>
                     <div className="mt-2 text-sm leading-6 text-slate-700">{ref.summary || summarizeEvidenceRef(ref)}</div>
@@ -1408,7 +1409,7 @@ function QAEvidencePanel({ response }: { response?: QAAskResponse }) {
             ) : null
           )
         ) : (
-          <MutedText text="本轮回答没有可展示的项目级证据。" />
+          <MutedText text="未检索到 Chroma evidence。" />
         )}
       </CardContent>
     </Card>
@@ -2197,7 +2198,9 @@ function EducationRow({ item }: { item: EducationExperience }) {
   );
 }
 
-function ProjectRow({ project, body = "" }: { project: Project; body?: string }) {
+function ProjectRow({ project, evidence }: { project: Project; evidence?: ClassifiedProjects["evidence_chunks"][number] }) {
+  const body = evidence?.chunk_text || evidence?.project_summary || "";
+  const origin = evidence?.evidence_origin === "chroma" ? "Chroma evidence" : evidence?.evidence_origin === "sql_fallback" ? "SQL fallback" : "";
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2207,8 +2210,10 @@ function ProjectRow({ project, body = "" }: { project: Project; body?: string })
             {[project.organization_raw, project.date_range_raw, project.role_raw || project.role_normalized].filter(Boolean).join(" · ") || "项目"}
           </div>
         </div>
+        {origin ? <Badge className={origin === "Chroma evidence" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{origin}</Badge> : null}
       </div>
       {body ? <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{body}</div> : null}
+      {evidence?.vector_id ? <div className="mt-2 break-all text-xs text-slate-400">vector_id: {evidence.vector_id}</div> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {dedupeTags(project.tags).slice(0, 8).map((tag) => (
           <Badge key={`${project.project_id}-${tag.tag_type}-${tag.tag_value}`}>{tag.tag_value}</Badge>
@@ -2295,9 +2300,8 @@ function SectionLabel({ title, count }: { title: string; count: number }) {
   );
 }
 
-function projectDisplayText(project: Project, evidenceChunks: ClassifiedProjects["evidence_chunks"]) {
-  const matched = evidenceChunks.find((item) => item.project_id === project.project_id || item.project_title === project.project_name_raw);
-  return matched?.chunk_text || matched?.project_summary || "";
+function projectDisplayEvidence(project: Project, evidenceChunks: ClassifiedProjects["evidence_chunks"]) {
+  return evidenceChunks.find((item) => item.project_id === project.project_id || item.project_title === project.project_name_raw);
 }
 
 function mergeProjects(...groups: Project[][]) {
@@ -2534,7 +2538,7 @@ function dateRange(start: string, end: string) {
 }
 
 function selectKeyEvidenceRefs(response?: QAAskResponse) {
-  const refs = response?.used_evidence_refs || [];
+  const refs = (response?.used_evidence_refs || []).filter(isChromaEvidenceRef);
   if (!refs.length) return [];
   const seen = new Set<string>();
   const sorted = [...refs].sort((a, b) => evidencePriority(b) - evidencePriority(a) || (b.strength || 0) - (a.strength || 0));
@@ -2555,29 +2559,33 @@ function selectKeyEvidenceRefs(response?: QAAskResponse) {
   return selected;
 }
 
+function isChromaEvidenceRef(ref: QAEvidenceRef) {
+  return Boolean(ref.evidence_id) && ["project_experience", "work_experience", "project_evidence"].includes(ref.source_type);
+}
+
 function evidencePriority(ref: QAEvidenceRef) {
-  if (ref.source_type === "project_evidence") return 300;
-  if (ref.source_type === "work_experiences") return 200;
+  if (ref.source_type === "project_experience" || ref.source_type === "project_evidence") return 300;
+  if (ref.source_type === "work_experience" || ref.source_type === "work_experiences") return 200;
   if (["project_tags", "domain_tags", "candidate_tags"].includes(ref.source_type)) return 100;
   return 0;
 }
 
 function groupEvidenceRefs(refs: QAEvidenceRef[]) {
   const groups: Record<string, QAEvidenceRef[]> = {
-    "项目证据": [],
+    "项目 Chroma evidence": [],
     "工作经历": [],
-    "标签/弱证据": [],
   };
   for (const ref of refs) {
-    if (ref.source_type === "project_evidence") groups["项目证据"].push(ref);
-    else if (ref.source_type === "work_experiences") groups["工作经历"].push(ref);
-    else groups["标签/弱证据"].push(ref);
+    if (ref.source_type === "project_experience" || ref.source_type === "project_evidence") groups["项目 Chroma evidence"].push(ref);
+    else if (ref.source_type === "work_experience" || ref.source_type === "work_experiences") groups["工作经历"].push(ref);
   }
   return groups;
 }
 
 function sourceTypeLabel(sourceType: string) {
   const labels: Record<string, string> = {
+    project_experience: "项目经历",
+    work_experience: "工作经历",
     project_evidence: "项目证据",
     project_tags: "项目标签",
     domain_tags: "领域标签",

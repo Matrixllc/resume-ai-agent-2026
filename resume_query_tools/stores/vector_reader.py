@@ -15,7 +15,7 @@ class ResumeVectorReader:
         self.persist_dir = Path(persist_dir)
         self.collection_name = collection_name
 
-    def list_project_chunks(self, resume_identity: str) -> List[Dict[str, Any]]:
+    def list_project_chunks(self, resume_identity: str, *, source_type: str | None = None) -> List[Dict[str, Any]]:
         if not self.persist_dir.exists():
             return []
         collection = self._collection()
@@ -29,6 +29,8 @@ class ResumeVectorReader:
         rows: List[Dict[str, Any]] = []
         for index, vector_id in enumerate(ids):
             metadata = dict(metadatas[index] if index < len(metadatas) and metadatas[index] else {})
+            if source_type and str(metadata.get("source_type", "") or "project_experience") != source_type:
+                continue
             rows.append(
                 {
                     "vector_id": str(vector_id),
@@ -44,6 +46,7 @@ class ResumeVectorReader:
         query: str,
         top_k: int = 20,
         candidate_ids: List[str] | None = None,
+        source_types: List[str] | None = None,
     ) -> Dict[str, Any]:
         """Search project chunks by query embedding.
 
@@ -78,6 +81,10 @@ class ResumeVectorReader:
         rows: List[Dict[str, Any]] = []
         for index, vector_id in enumerate(ids):
             metadata = dict(metadatas[index] if index < len(metadatas) and metadatas[index] else {})
+            if source_types:
+                row_source_type = str(metadata.get("source_type", "") or "project_experience")
+                if row_source_type not in set(source_types):
+                    continue
             rows.append(
                 {
                     "vector_id": str(vector_id),

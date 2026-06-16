@@ -84,6 +84,18 @@ def ranking_output_limit(question: str) -> int | None:
     return None
 
 
+def evidence_scope_from_question(question: str) -> str:
+    """从用户问题中推断 evidence scope。"""
+    text = normalize_spaces(question)
+    if re.search(r"(工作信息|工作经历|工作内容|工作经验|任职|公司内|职责)", text):
+        return "work"
+    if re.search(r"(项目信息|项目经历|项目经验|项目内容|项目过程|项目成果)", text):
+        return "project"
+    if re.search(r"(简历经历|技术经历|相关经历|经历)", text):
+        return "both"
+    return "both"
+
+
 def with_context_candidate_ids(args: dict[str, Any], router_output: RouterOutput, session_context: dict | None) -> dict[str, Any]:
     """向筛选参数补充上下文候选人标识并返回。"""
     candidate_ids = candidate_ids_for_context(router_output.context_policy, session_context)

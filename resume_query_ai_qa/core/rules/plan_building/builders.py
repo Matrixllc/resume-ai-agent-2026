@@ -11,7 +11,7 @@ from resume_query_ai_qa.core.rules.context_resolver import candidate_ids_for_con
 from resume_query_ai_qa.core.rules.execution_policy_rules import scenario_for_intent
 from resume_query_ai_qa.core.schemas import RouterOutput, ToolCallSpec
 
-from .query_args import candidate_reference_text, filter_args, preference_filter_args, preference_recall_query, ranking_filter_args, ranking_target_text, sanitize_session_context, tool_query
+from .query_args import candidate_reference_text, evidence_scope_from_question, filter_args, preference_filter_args, preference_recall_query, ranking_filter_args, ranking_target_text, sanitize_session_context, tool_query
 from .refs import structured_arg_ref
 from .source_policy import last_output_key
 
@@ -248,7 +248,7 @@ def _single_evidence(context: BuildContext) -> ToolCallSpec:
     source = context.source or "resolved_candidate"
     return ToolCallSpec(
         name=context.tool_name,
-        arguments={"resume_identity": _single_candidate_ref(source), "query": context.query},
+        arguments={"resume_identity": _single_candidate_ref(source), "query": context.query, "scope": evidence_scope_from_question(context.question)},
         output_key=context.config.default_output_key(context.tool_name),
         depends_on=[source],
     )
@@ -259,7 +259,7 @@ def _search_evidence(context: BuildContext) -> ToolCallSpec:
     source = context.source or "resolved_candidate"
     return ToolCallSpec(
         name=context.tool_name,
-        arguments={"query": context.query, "candidate_ids": _candidate_ids_ref(source)},
+        arguments={"query": context.query, "candidate_ids": _candidate_ids_ref(source), "scope": evidence_scope_from_question(context.question)},
         output_key=context.config.default_output_key(context.tool_name),
         depends_on=[source],
     )

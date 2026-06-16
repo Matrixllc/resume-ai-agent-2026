@@ -81,6 +81,9 @@ export type Project = {
 export type EvidenceChunk = {
   project_id: string;
   project_title: string;
+  source_type: string;
+  evidence_origin: string;
+  vector_id: string;
   project_summary: string;
   chunk_text: string;
   organization_raw: string;
