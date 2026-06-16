@@ -73,6 +73,7 @@ def _ingest_resumes(request: IngestResumesRequest | None = None) -> dict:
     config = get_config()
     target_dir = _resolve_resume_directory(payload.directory, config)
     extensions = {item.lower() if item.startswith(".") else f".{item.lower()}" for item in payload.extensions}
+    _seed_configured_resume_dir(config=config, target_dir=target_dir, extensions=extensions)
     files = []
     if target_dir.exists():
         files = [
@@ -471,10 +472,41 @@ def _storage_blocked_message(reason: str) -> str:
     return ""
 
 
+def _seed_configured_resume_dir(*, config: Dict[str, Any], target_dir: Path, extensions: set[str]) -> None:
+    """Copy repository sample resumes into the configured runtime directory when it is empty."""
+    paths = dict(config.get("paths", {}) or {})
+    repo_root = Path(paths.get("repo_root") or Path(__file__).resolve().parents[2]).resolve()
+    resume_dir = Path(paths.get("resume_dir") or repo_root / "data" / "resume").resolve()
+    if target_dir.resolve() != resume_dir or _has_resume_files(target_dir, extensions):
+        return
+    sample_dir = repo_root / "data" / "resume"
+    if sample_dir.resolve() == resume_dir or not sample_dir.exists():
+        return
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for sample in sorted(sample_dir.iterdir()):
+        if not sample.is_file() or sample.suffix.lower() not in extensions or sample.name.startswith("~$"):
+            continue
+        destination = target_dir / sample.name
+        if not destination.exists():
+            shutil.copy2(sample, destination)
+
+
+def _has_resume_files(directory: Path, extensions: set[str]) -> bool:
+    if not directory.exists():
+        return False
+    return any(
+        item.is_file() and item.suffix.lower() in extensions and not item.name.startswith("~$")
+        for item in directory.iterdir()
+    )
+
+
 def _resolve_resume_directory(directory: str, config: Dict[str, Any]) -> Path:
     repo_root = Path(config.get("paths", {}).get("repo_root") or Path(__file__).resolve().parents[2]).resolve()
     resume_dir = Path(config.get("paths", {}).get("resume_dir") or repo_root / "data" / "resume").resolve()
-    target_dir = Path(directory).expanduser() if directory else resume_dir
+    normalized = str(directory or "").strip().strip("/")
+    if normalized in {"", "resume", "data/resume"}:
+        return resume_dir
+    target_dir = Path(directory).expanduser()
     if target_dir.is_absolute():
         target_dir = target_dir.resolve()
     else:

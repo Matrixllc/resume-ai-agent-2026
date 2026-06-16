@@ -671,7 +671,7 @@ function ResumeIngestionPanel({
               简历入库
             </CardTitle>
             <CardDescription className="mt-1">
-              上传一份简历或扫描根目录 resume，入库后会出现在候选人信息和 AI 问答中。
+              上传一份简历或扫描 data/resume 样例目录，入库后会出现在候选人信息和 AI 问答中。
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -692,7 +692,7 @@ function ResumeIngestionPanel({
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-3 md:grid-cols-3">
-          <InfoCell label="上传存储" value="resume/uploads" />
+          <InfoCell label="上传存储" value="data/resume/uploads" />
           <InfoCell label="支持格式" value="PDF / DOC / DOCX" />
           <InfoCell label="批量扫描" value="先清空 SQLite/Chroma，再重建入库" />
         </div>
@@ -2386,7 +2386,7 @@ function buildUploadProgressSteps(status: IngestionStatus | null) {
   const activeIndex = done ? 5 : failed ? 4 : uploadProgressIndex(currentStep);
   const labels = [
     ["上传文件", "浏览器提交文件"],
-    ["保存文件", "写入 resume/uploads"],
+    ["保存文件", "写入 data/resume/uploads"],
     ["解析文本", "读取简历内容"],
     ["抽取字段", "识别候选人和项目"],
     ["校验写库", "写入 SQLite/Chroma"],
