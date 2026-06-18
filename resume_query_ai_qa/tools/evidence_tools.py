@@ -49,34 +49,54 @@ def get_candidate_evidence(
     except Exception:
         detail = None
         candidate_name = ""
-    refs: List[EvidenceRef] = []
+    work_refs: List[EvidenceRef] = []
+    project_refs: List[EvidenceRef] = []
     query_terms = split_terms(clean_retrieval_query(query or ""))
     if scope in {"work", "both"}:
-        refs.extend(
-            _work_vector_refs(
-                resume_identity, candidate_name=candidate_name, query_terms=query_terms
-            )
+        work_refs = _work_vector_refs(
+            resume_identity, candidate_name=candidate_name, query_terms=query_terms
         )
     if scope in {"project", "both"}:
-        refs.extend(
-            _project_vector_refs(
-                resume_identity, candidate_name=candidate_name, query_terms=query_terms
-            )
+        project_refs = _project_vector_refs(
+            resume_identity, candidate_name=candidate_name, query_terms=query_terms
         )
+    refs = _merge_scope_refs(work_refs, project_refs, scope=scope, limit=max(limit, 0))
     if not refs and query_terms and _is_scope_browse_query(query or ""):
         if scope in {"work", "both"}:
-            refs.extend(
-                _work_vector_refs(
-                    resume_identity, candidate_name=candidate_name, query_terms=[]
-                )
+            work_refs = _work_vector_refs(
+                resume_identity, candidate_name=candidate_name, query_terms=[]
             )
         if scope in {"project", "both"}:
-            refs.extend(
-                _project_vector_refs(
-                    resume_identity, candidate_name=candidate_name, query_terms=[]
-                )
+            project_refs = _project_vector_refs(
+                resume_identity, candidate_name=candidate_name, query_terms=[]
             )
-    return refs[: max(limit, 0)]
+        refs = _merge_scope_refs(work_refs, project_refs, scope=scope, limit=max(limit, 0))
+    return refs
+
+
+def _merge_scope_refs(
+    work_refs: List[EvidenceRef],
+    project_refs: List[EvidenceRef],
+    *,
+    scope: Literal["work", "project", "both"],
+    limit: int,
+) -> List[EvidenceRef]:
+    """按 scope 合并经历；both 使用轮询交错，单类不足时由另一类补满。"""
+    if limit <= 0:
+        return []
+    if scope == "work":
+        return work_refs[:limit]
+    if scope == "project":
+        return project_refs[:limit]
+    refs: List[EvidenceRef] = []
+    for index in range(max(len(work_refs), len(project_refs))):
+        if index < len(work_refs):
+            refs.append(work_refs[index])
+        if index < len(project_refs):
+            refs.append(project_refs[index])
+        if len(refs) >= limit:
+            break
+    return refs[:limit]
 
 
 def search_candidate_evidence(

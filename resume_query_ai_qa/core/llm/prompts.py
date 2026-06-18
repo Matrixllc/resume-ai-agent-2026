@@ -139,7 +139,7 @@ router 输出:
 - 在调用 hybrid_search_candidates/search_candidate_evidence/filter_candidates 前，基于 normalized_conditions 清理 query/参数：去掉“帮我/有哪些/候选人/刚才/上一次/介绍一下”等话术，只保留候选人姓名、领域、技能、项目、职责、经历等实体或条件。
 - session_context 只传给 resolve_candidate_reference；其他工具参数不得从上轮上下文继承候选人，除非当前问题含有“他/她/这个人/刚才那个人/第一名/他们”等明确指代。
 - candidate_compare_pair：resolve_candidate_reference(output_key="resolved_candidates") -> build_comparison_pack(candidate_ids="$resolved_candidates.candidate_ids", depends_on=["resolved_candidates"])。
-- candidate_profile_intro：resolve_candidate_reference(output_key="resolved_candidate") -> get_candidate_profile_intro(resume_identity="$resolved_candidate.candidate_ids.0")。
+- candidate_profile_intro：resolve_candidate_reference(output_key="resolved_candidate") -> get_candidate_profiles_intro(candidate_ids="$resolved_candidate.candidate_ids") -> search_candidate_evidence(query="", candidate_ids="$resolved_candidate.candidate_ids", scope="both")。画像只来自 SQLite，工作和项目证据必须通过显式 evidence tool result 提供。
 - ranking：load_default_jd_criteria(output_key="criteria") -> score_candidates_for_jd(criteria="$criteria", output_key="scores") -> rank_candidates(scored_candidates="$scores")。
 - evidence_question 必须包含证据查询工具。
 - 联系方式默认隐藏，不要规划 include_contact=true，除非用户明确问联系方式。

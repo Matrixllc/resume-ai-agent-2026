@@ -168,6 +168,9 @@ cases:
       intent: candidate_profile_intro
       scenarios: {candidate_profile_intro: soft_summary}
       status: ok
+    safety:
+      required_tools: [resolve_candidate_reference, get_candidate_profiles_intro, search_candidate_evidence]
+      profile_evidence_browse: true
 
   - id: evidence
     family: evidence
@@ -272,6 +275,9 @@ cases:
       context_ref_type: ranking_top
       scenarios: {candidate_profile_intro: soft_summary}
       status: ok
+    safety:
+      required_tools: [get_candidate_profiles_intro, search_candidate_evidence]
+      profile_evidence_browse: true
 
   - id: follow_up_top_k_profile
     family: context_followup
@@ -287,6 +293,9 @@ cases:
       context_ref_type: ranking_top_k
       scenarios: {candidate_profile_intro: soft_summary}
       status: ok
+    safety:
+      required_tools: [get_candidate_profiles_intro, search_candidate_evidence]
+      profile_evidence_browse: true
 
   - id: context_pool_ranking
     family: context_followup
@@ -449,6 +458,8 @@ cases:
       status: ok
     safety:
       forbidden_tools: [score_candidates_for_jd, rank_candidates]
+      required_tools: [get_candidate_profiles_intro, search_candidate_evidence]
+      profile_evidence_browse: true
 
   - id: interview_generation
     family: interview_generation

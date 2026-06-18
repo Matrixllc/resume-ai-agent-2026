@@ -56,7 +56,6 @@ tools:
       - candidate_collection
     scope: candidate
     default_output_key: candidate_profile
-    roles: [evidence_capable]
     binding_kind: single_profile
   get_candidate_profiles_intro:
     description: "Fetch privacy-safe profile introductions for up to five resolved candidates."
@@ -70,7 +69,6 @@ tools:
       - candidate_collection
     scope: candidate_collection
     default_output_key: candidate_profile
-    roles: [evidence_capable]
     binding_kind: multi_profile
   get_candidate_evidence:
     description: "Fetch evidence for a candidate."
@@ -217,6 +215,7 @@ intent_result_requirements:
   candidate_compare_pair:
     all: [build_comparison_pack]
   candidate_profile_intro:
+    all: [search_candidate_evidence]
     any: [get_candidate_profile_intro, get_candidate_profiles_intro]
   interview_question_generation:
     all: [search_candidate_evidence]
@@ -306,6 +305,7 @@ intent_tools:
     preferred_tools:
       - resolve_candidate_reference
       - get_candidate_profiles_intro
+      - search_candidate_evidence
     allowed_tools:
       - resolve_candidate_reference
       - filter_candidates
@@ -313,6 +313,7 @@ intent_tools:
       - get_candidate_profile_intro
       - get_candidate_profiles_intro
       - get_candidate_evidence
+      - search_candidate_evidence
 
   candidate_compare_pair:
     preferred_tools:

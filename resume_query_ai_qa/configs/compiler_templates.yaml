@@ -45,6 +45,10 @@ workflows:
         consumes: candidate_collection
         produces: candidate_profile
         default_output_key: candidate_profile
+      - tool: search_candidate_evidence
+        consumes: candidate_collection
+        produces: evidence_collection
+        default_output_key: candidate_evidence
 
   candidate_compare_pair:
     priority: 50

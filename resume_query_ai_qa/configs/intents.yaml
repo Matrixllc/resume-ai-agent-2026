@@ -56,6 +56,7 @@ intents:
     semantic_needs:
       - resolve_candidate
       - profile
+      - evidence
     allow_compound: true
     requires_jd_criteria: false
     requires_evidence: true

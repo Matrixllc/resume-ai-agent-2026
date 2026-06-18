@@ -8,7 +8,6 @@ from resume_query_tools import get_candidate_profile
 
 from .candidate_tools import list_all_candidates
 from .common import MAX_PROFILE_DISPLAY_COUNT, dedupe_ids, tag_values
-from .evidence_tools import get_candidate_evidence
 
 
 def get_candidate_profile_intro(
@@ -18,13 +17,12 @@ def get_candidate_profile_intro(
 ) -> Dict[str, Any]:
     """返回单个候选人的画像素材。
 
-    数据来源：SQLite 候选人详情、工作/教育/项目 manifest，加 Chroma 项目证据
-    摘要。默认隐藏联系方式，只有明确 include_contact 才返回 contact。
+    数据来源只包括 SQLite 候选人详情、工作/教育/项目 manifest。Chroma 证据
+    由 QueryPlan 中显式的 search_candidate_evidence 调用提供。
 
     返回给 aggregator 的是事实素材，不包含“是否更强”“是否推荐”等评价结论。
     """
     detail = get_candidate_profile(resume_identity)
-    evidence_refs = get_candidate_evidence(resume_identity)
     payload: Dict[str, Any] = {
         "resume_identity": resume_identity,
         "name": str(detail.name.value or ""),
@@ -44,7 +42,6 @@ def get_candidate_profile_intro(
             }
             for item in detail.projects
         ],
-        "evidence_refs": [item.model_dump() for item in evidence_refs[:5]],
         "contact_hidden": not include_contact,
     }
     if include_contact:

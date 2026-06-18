@@ -257,9 +257,14 @@ def _single_evidence(context: BuildContext) -> ToolCallSpec:
 def _search_evidence(context: BuildContext) -> ToolCallSpec:
     """获取检索证据并返回。"""
     source = context.source or "resolved_candidate"
+    profile_browse = context.intent == "candidate_profile_intro"
     return ToolCallSpec(
         name=context.tool_name,
-        arguments={"query": context.query, "candidate_ids": _candidate_ids_ref(source), "scope": evidence_scope_from_question(context.question)},
+        arguments={
+            "query": "" if profile_browse else context.query,
+            "candidate_ids": _candidate_ids_ref(source),
+            "scope": "both" if profile_browse else evidence_scope_from_question(context.question),
+        },
         output_key=context.config.default_output_key(context.tool_name),
         depends_on=[source],
     )

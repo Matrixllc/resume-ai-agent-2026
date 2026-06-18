@@ -62,6 +62,8 @@ def _safety_failures(case: dict, plan) -> list[str]:
             failures.append(f"{case['id']}: forbidden tools used {used}")
     if safety.get("candidate_evidence_ids_from_candidate_pool"):
         failures.extend(_candidate_evidence_binding_failures(case, plan))
+    if safety.get("profile_evidence_browse"):
+        failures.extend(_profile_evidence_browse_failures(case, plan))
     forbidden_filter_args = dict(safety.get("forbidden_filter_args", {}) or {})
     required_filter_args = dict(safety.get("required_filter_args", {}) or {})
     if not forbidden_filter_args and not required_filter_args:
@@ -93,6 +95,19 @@ def _safety_failures(case: dict, plan) -> list[str]:
         if missing:
             failures.append(f"{case['id']}: filter_candidates {key} missing required values {missing}")
     return failures
+
+
+def _profile_evidence_browse_failures(case: dict, plan) -> list[str]:
+    calls = [
+        call
+        for call in plan_calls(plan)
+        if call.name == "search_candidate_evidence"
+        and dict(call.arguments or {}).get("query") == ""
+        and dict(call.arguments or {}).get("scope") == "both"
+    ]
+    if not calls:
+        return [f"{case['id']}: profile evidence browse call missing query='' scope='both'"]
+    return []
 
 
 def _candidate_evidence_binding_failures(case: dict, plan) -> list[str]:
